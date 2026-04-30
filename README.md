@@ -6,6 +6,8 @@
 [![Latest Release](https://img.shields.io/github/release/labodj/labo-smart-home-coordinator.svg)](https://github.com/labodj/labo-smart-home-coordinator/releases)
 [![License](https://img.shields.io/github/license/labodj/labo-smart-home-coordinator.svg)](https://github.com/labodj/labo-smart-home-coordinator/blob/main/LICENSE)
 
+[![works with MQTT Homie](https://homieiot.github.io/img/works-with-homie.svg "works with MQTT Homie")](https://homieiot.github.io/)
+
 `labo-smart-home-coordinator` is the standalone runtime for the public LSH MQTT
 coordination contract. It listens to LSH device telemetry, keeps a live device
 registry, validates distributed long-click actions, emits actuator commands,
