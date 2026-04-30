@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use or reference labo-smart-home-coordinator, please cite it using this metadata."
+title: "labo-smart-home-coordinator"
+version: "1.0.0"
+authors:
+  - family-names: "Labardi"
+    given-names: "Jacopo"
+repository-code: "https://github.com/labodj/labo-smart-home-coordinator"
+url: "https://github.com/labodj/labo-smart-home-coordinator"
+license: "Apache-2.0"
+abstract: "Standalone MQTT coordinator for devices implementing the public LSH protocol contract."
+keywords:
+  - lsh
+  - mqtt
+  - home-automation
+  - smart-home

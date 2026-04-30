@@ -1,0 +1,504 @@
+/**
+ * @file Shared public and internal coordinator type definitions.
+ *
+ * This module is the single source of truth for runtime data structures,
+ * protocol payload shapes and output-message contracts. Keeping these shapes in
+ * one place lets adapters, the service layer and tests agree without duplicating
+ * loosely typed objects.
+ */
+
+import type { ClickType, LshProtocol } from "./generated/protocol";
+
+export {
+  ClickType,
+  LshProtocol,
+  LSH_PROTOCOL_KEYS,
+  LSH_PROTOCOL_SPEC_REVISION,
+  LSH_WIRE_PROTOCOL_MAJOR,
+} from "./generated/protocol";
+
+// --------------------------------------------------------------------------
+// Node Configuration and Core Types
+// --------------------------------------------------------------------------
+
+/** MQTT message shape used by the coordinator core and adapters. */
+export interface MqttMessage {
+  /** MQTT topic. Command outputs always set it; inbound validation rejects missing topics. */
+  topic?: string;
+  /** MQTT payload as decoded object, text, Buffer, number or boolean depending on the boundary. */
+  payload?: unknown;
+  /** MQTT QoS requested for outbound messages. */
+  qos?: 0 | 1 | 2;
+  /** MQTT retain flag when known. */
+  retain?: boolean;
+  /** Adapter-specific metadata can be carried by embedders without affecting the core. */
+  [key: string]: unknown;
+}
+
+/**
+ * Backward-compatible internal alias used by the ported service code. Public
+ * consumers should prefer `MqttMessage`.
+ */
+export type NodeMessage = MqttMessage;
+
+/**
+ * Defines the configuration options for the standalone coordinator runtime.
+ */
+export interface CoordinatorOptions {
+  /** Base path for Homie v5 device topics (e.g., 'homie/5/'). */
+  homieBasePath: string;
+  /** Base path for LSH device command and state topics (e.g., 'LSH/'). */
+  lshBasePath: string;
+  /** Broadcast topic for global commands like a system-wide ping. */
+  serviceTopic: string;
+  /** The protocol to use for LSH command payloads. */
+  protocol: "json" | "msgpack";
+  /** Prefix for context keys when reading external device states. */
+  otherDevicesPrefix: string;
+  /** Seconds to wait for a network click confirmation before it expires. */
+  clickTimeout: number;
+  /** Frequency in seconds for checking and cleaning up expired click transactions. */
+  clickCleanupInterval: number;
+  /** Frequency in seconds of the main device health check loop. */
+  watchdogInterval: number;
+  /** Seconds of device silence before sending an interrogation ping. */
+  interrogateThreshold: number;
+  /** Seconds to wait for a ping response before marking a device as 'stale'. */
+  pingTimeout: number;
+  /** Seconds to wait for the startup BOOT replay before running active verification. */
+  initialStateTimeout: number;
+}
+
+/**
+ * Provides a type-safe mapping of logical service outputs to their stable index.
+ * The index keeps the ported service logic compact while adapters expose
+ * event-based or MQTT-based APIs on top.
+ */
+export enum Output {
+  /** Output for commands to LSH protocol devices. */
+  Lsh = 0,
+  /** Output for commands to other (non-LSH) devices. */
+  OtherActors = 1,
+  /** Output for system health alerts (e.g., for Telegram). */
+  Alerts = 2,
+  /** Output for dynamic MQTT topic configuration messages. */
+  Configuration = 3,
+  /** Output for forwarding the original, unprocessed input message. */
+  Debug = 4,
+}
+
+/**
+ * Defines the structure for service-layer output batches, allowing messages to
+ * be targeted to specific logical outputs by their enum key.
+ */
+export type OutputMessages = {
+  [Output.Lsh]?: NodeMessage | NodeMessage[];
+  [Output.OtherActors]?: NodeMessage | NodeMessage[];
+  [Output.Alerts]?: NodeMessage | NodeMessage[];
+  [Output.Configuration]?:
+    | MqttSubscribeMsg
+    | MqttUnsubscribeMsg
+    | Array<MqttSubscribeMsg | MqttUnsubscribeMsg>;
+  [Output.Debug]?: NodeMessage | NodeMessage[];
+};
+
+/**
+ * @internal
+ * @description Describes the set of actions for an adapter to perform
+ * based on the result of a service layer operation. This is a crucial part of the
+ * architecture, allowing the service to remain pure by describing *what* should
+ * happen (e.g., send messages, log warnings) without actually performing I/O.
+ */
+export interface ServiceResult {
+  /** Messages to be emitted through the coordinator's logical outputs. */
+  messages: OutputMessages;
+  /** Informational messages to be logged. */
+  logs: string[];
+  /** Warning messages to be logged. */
+  warnings: string[];
+  /** Error messages to be logged. */
+  errors: string[];
+  /** Flag indicating if the public-facing state has changed and should be exposed. */
+  stateChanged: boolean;
+  /** Flag indicating if the exported registry snapshot changed without a semantic runtime transition. */
+  registryChanged?: boolean;
+  /** If true, indicates that an array of LSH messages should be sent with a delay between them. */
+  staggerLshMessages?: boolean;
+}
+
+/**
+ * Optional metadata about the MQTT envelope that carried an incoming payload.
+ * This lets the service distinguish freshly published traffic from retained
+ * broker replays without coupling it to a specific MQTT client implementation.
+ */
+export interface ProcessMessageOptions {
+  /** `true` when the MQTT broker marked this delivery as retained. */
+  retained?: boolean;
+}
+
+export type HomieLifecycleState = "init" | "ready" | "disconnected" | "lost" | "sleeping";
+
+// --------------------------------------------------------------------------
+// LSH Protocol and Payloads
+// --------------------------------------------------------------------------
+
+// --------------------------------------------------------------------------
+// Client -> Node Payloads (ESP -> Controllino)
+// These interfaces define the expected structure of messages received from devices.
+// --------------------------------------------------------------------------
+
+/** Payload: Device Details. Sent by a device to report its static configuration via the 'conf' topic. */
+export interface DeviceDetailsPayload {
+  p: LshProtocol.DEVICE_DETAILS;
+  /** Handshake-only protocol major used for compatibility checks. */
+  v: number;
+  /** The display name of the device (e.g., 'c1'). */
+  n: string;
+  /** An array of actuator IDs (e.g., ['1', '5']). */
+  a: number[];
+  /** An array of button IDs (e.g., ['1']). */
+  b: number[];
+}
+
+/** Payload: Actuators State. Sent by a device to report the live state of its actuators via the 'state' topic.
+ * @description The state is bitpacked into an array of bytes where each byte contains 8 actuator states.
+ *              Byte 0, bit 0 = actuator 0; Byte 0, bit 7 = actuator 7; Byte 1, bit 0 = actuator 8, etc.
+ *              Example: s=[90,3] for 10 actuators (90 = 0b01011010, 3 = 0b00000011).
+ */
+export interface DeviceActuatorsStatePayload {
+  p: LshProtocol.ACTUATORS_STATE;
+  /** An array of bitpacked bytes representing the ON/OFF state of each actuator. */
+  s: number[];
+}
+
+/** Payload: Network Click Request. Initial request when a button is long-pressed. */
+export interface NetworkClickRequestPayload {
+  p: LshProtocol.NETWORK_CLICK_REQUEST;
+  /** The type of click, e.g., long-click or super-long-click. */
+  t: ClickType;
+  /** The ID of the button that was pressed (e.g., 7). */
+  i: number;
+  /** Correlates request, ACK, failover and confirm across the same click lifecycle. */
+  c: number;
+}
+
+/** Payload: Ping. A ping message for health checks, sent via the 'events' topic. */
+export interface PingPayload {
+  p: LshProtocol.PING;
+}
+
+/** Payload: Boot. Requests a role-local resynchronization from the immediate peer. */
+export interface BootPayload {
+  p: LshProtocol.BOOT;
+}
+
+/**
+ * Payload: Bridge-local diagnostic published on a device `bridge` topic.
+ * These events come from `lsh-bridge` itself, not from controller/device
+ * business logic, so the coordinator accepts them but never treats
+ * them as proof of controller reachability.
+ */
+export interface BridgeDiagnosticPayload {
+  /** Bridge-local event envelope. */
+  event: "diagnostic";
+  /** Diagnostic kind emitted by the bridge runtime. */
+  kind: string;
+  /** Optional duration for an unstable pending actuator batch. */
+  pending_ms?: number;
+  /** Optional mutation count for a dropped unstable actuator batch. */
+  mutation_count?: number;
+  /** Optional count of dropped device-topic commands caused by queue overflow. */
+  dropped_device_commands?: number;
+  /** Optional count of dropped service-topic commands caused by queue overflow. */
+  dropped_service_commands?: number;
+}
+
+/**
+ * Payload: Bridge-local service ping response.
+ * This event proves that the MQTT-facing bridge runtime is alive, and also
+ * reports whether the downstream controller path is currently usable.
+ */
+export interface ServicePingReplyPayload {
+  event: "service_ping_reply";
+  controller_connected: boolean;
+  runtime_synchronized: boolean;
+  /** Optional bridge bootstrap phase reported for runtime diagnostics. */
+  bootstrap_phase?: string;
+}
+
+/**
+ * Defines the structure of the message payload sent to the 'OtherActors' output.
+ */
+export interface OtherActorsCommandPayload {
+  /** The list of target actor names (e.g., Tasmota, Zigbee devices). */
+  otherActors: string[];
+  /** The desired boolean state to set. */
+  stateToSet: boolean;
+}
+
+/**
+ * A discriminated union of all possible controller-backed payloads received on
+ * a device's 'events' topic.
+ * This powerful TypeScript pattern allows the type of the payload to be inferred
+ * based on the value of the 'p' property.
+ */
+export type AnyEventsTopicPayload =
+  | NetworkClickRequestPayload
+  | NetworkClickConfirmPayload
+  | PingPayload;
+
+/** A discriminated union of all bridge-local payloads received on `bridge`. */
+export type AnyBridgeTopicPayload = ServicePingReplyPayload | BridgeDiagnosticPayload;
+
+// --------------------------------------------------------------------------
+// Node -> Client Payloads (Controllino -> ESP)
+// These interfaces define the structure of command messages sent to devices.
+// --------------------------------------------------------------------------
+
+/** Payload: Request Device Details. Sent to request a device's configuration. */
+export interface RequestDetailsPayload {
+  p: LshProtocol.REQUEST_DETAILS;
+}
+
+/** Payload: Request Actuators State. Sent to request a device's current actuator states. */
+export interface RequestStatePayload {
+  p: LshProtocol.REQUEST_STATE;
+}
+
+/** Payload: Apply All Actuators State. Sent to set all actuator states on a device. */
+export interface SetStatePayload {
+  p: LshProtocol.SET_STATE;
+  /** An array of bitpacked bytes representing the desired ON/OFF state for each actuator. */
+  s: number[];
+}
+
+/** Payload: Apply Single Actuator State. Sent to set a single actuator's state. */
+export interface SetSingleActuatorPayload {
+  p: LshProtocol.SET_SINGLE_ACTUATOR;
+  /** The ID of the target actuator (e.g., '7'). */
+  i: number;
+  /** The desired state for the actuator. */
+  s: 0 | 1;
+}
+
+/** Payload: Network Click Ack. Sent to acknowledge a valid network click request. */
+export interface NetworkClickAckPayload {
+  p: LshProtocol.NETWORK_CLICK_ACK;
+  /** The type of click being acknowledged. */
+  t: ClickType;
+  /** The ID of the button whose click is being acknowledged. */
+  i: number;
+  /** Correlates request, ACK, failover and confirm across the same click lifecycle. */
+  c: number;
+}
+
+/** Payload: Network Click Confirm. Sent by the device after receiving an ACK to confirm logic execution. */
+export interface NetworkClickConfirmPayload {
+  p: LshProtocol.NETWORK_CLICK_CONFIRM;
+  /** The type of click being confirmed. */
+  t: ClickType;
+  /** The ID of the button whose click is being confirmed. */
+  i: number;
+  /** Correlates request, ACK, failover and confirm across the same click lifecycle. */
+  c: number;
+}
+/** Payload: General Failover. Sent to indicate a system-level failure (e.g., config not loaded). */
+export interface FailoverPayload {
+  p: LshProtocol.FAILOVER;
+}
+
+/** Payload: Failover. Sent to indicate a click-specific action has failed (e.g., target offline). */
+export interface FailoverClickPayload {
+  p: LshProtocol.FAILOVER_CLICK;
+  /** The type of click that failed. */
+  t: ClickType;
+  /** The ID of the button whose action failed. */
+  i: number;
+  /** Correlates request, ACK, failover and confirm across the same click lifecycle. */
+  c: number;
+}
+
+/** Payload: Reboot. Sent to command the device to reboot. */
+export interface RebootPayload {
+  p: LshProtocol.REBOOT;
+}
+
+/** Payload: Reset. Sent to command the device to perform a factory reset. */
+export interface ResetPayload {
+  p: LshProtocol.RESET;
+}
+
+// --------------------------------------------------------------------------
+// Configuration File Structure (`system-config.json`)
+// These interfaces define the structure of the main configuration file.
+// --------------------------------------------------------------------------
+
+/** Configuration for a target actor within a button action. */
+export interface Actor {
+  /** The name of the target device. */
+  name: string;
+  /** If true, the action applies to all actuators on the target device. */
+  allActuators: boolean;
+  /** If `allActuators` is false, this specifies which actuator IDs to target. */
+  actuators: number[];
+}
+
+/** Defines an action triggered by a button press. */
+export interface ButtonAction {
+  /** The ID of the button that triggers this action (e.g., '7'). */
+  id: number;
+  /** Optional list of primary LSH actors to control. At least one target must exist across actors and otherActors. */
+  actors?: Actor[];
+  /** Optional list of secondary, external actors to control (e.g., Tasmota, Zigbee devices). */
+  otherActors?: string[];
+}
+
+/** A single device's entry from the system configuration file. */
+export interface DeviceEntry {
+  name: string;
+  longClickButtons?: ButtonAction[];
+  superLongClickButtons?: ButtonAction[];
+}
+
+/** The root structure of the `system-config.json` file. */
+export interface SystemConfig {
+  devices: DeviceEntry[];
+}
+
+// --------------------------------------------------------------------------
+// Internal State Management
+// These interfaces define the structure of the in-memory state.
+// --------------------------------------------------------------------------
+
+/** A map for O(1) lookup of an actuator's index by its ID. */
+export interface ActuatorIndexMap {
+  [actuatorId: number]: number;
+}
+
+/**
+ * Represents the complete in-memory state for a single LSH device,
+ * including its configuration, connection status, and actuator states.
+ */
+export interface DeviceState {
+  /** The unique name of the device, used as the primary key. */
+  name: string;
+  /** The last known controller-backed reachability state. */
+  connected: boolean;
+  /** Last bridge-reported controller-link status. `null` means the bridge has not reported it yet in this session. */
+  controllerLinkConnected: boolean | null;
+  /** Overall controller-side health flag for alerts and recovery. Ping-timeout staleness is tracked separately via `isStale`, while snapshot authoritativeness is tracked via `lastDetailsTime` and `lastStateTime`. */
+  isHealthy: boolean;
+  /** `true` if a controller ping was sent but not yet answered within the timeout. A temporary warning state. */
+  isStale: boolean;
+  /** Timestamp of the last controller-backed message received from the device. */
+  lastSeenTime: number;
+  /** The last known bridge reachability state. */
+  bridgeConnected: boolean;
+  /** Timestamp of the last bridge-local or bridge-backed message observed from the device. */
+  bridgeLastSeenTime: number;
+  /** Last raw Homie `$state` observed for the device, independent of availability semantics. */
+  lastHomieState: HomieLifecycleState | null;
+  /** Timestamp of the last observed raw Homie `$state` message. */
+  lastHomieStateTime: number;
+  /** Timestamp of the last 'conf' message from the device. */
+  lastDetailsTime: number;
+  /** Timestamp of the last authoritative 'state' message from the device. `0` means the current topology has no confirmed state snapshot yet. */
+  lastStateTime: number;
+  /** An ordered array of actuator IDs (e.g., ['A1', 'A2']). */
+  actuatorsIDs: number[];
+  /** An array of button IDs, if any (e.g., ['B1', 'B2']). */
+  buttonsIDs: number[];
+  /** An ordered array of the current boolean states for each actuator. */
+  actuatorStates: boolean[];
+  /** A map for O(1) lookup of an actuator's index by its ID. Pre-computed for performance. */
+  actuatorIndexes: ActuatorIndexMap;
+  /** `true` if an alert for this device being offline has already been sent, to prevent alert spam. */
+  alertSent: boolean;
+}
+
+/** The in-memory "database" of all known devices and their current states. */
+export interface DeviceRegistry {
+  [deviceName: string]: DeviceState;
+}
+
+/**
+ * Immutable snapshot shape exposed outside the registry manager.
+ * Nested collections are read-only so consumers cannot mutate future reads.
+ */
+export interface DeviceStateSnapshot extends Omit<
+  DeviceState,
+  "actuatorsIDs" | "buttonsIDs" | "actuatorStates" | "actuatorIndexes"
+> {
+  actuatorsIDs: readonly number[];
+  buttonsIDs: readonly number[];
+  actuatorStates: readonly boolean[];
+  actuatorIndexes: Readonly<ActuatorIndexMap>;
+}
+
+/** Read-only snapshot of the exposed device registry. */
+export interface DeviceRegistrySnapshot {
+  [deviceName: string]: DeviceStateSnapshot;
+}
+
+/** Defines the data stored for a pending network click transaction. */
+export interface PendingClickTransaction {
+  /** Slot key that uniquely identifies the logical click source (device + button + type). */
+  slotKey: string;
+  /** The primary actors (LSH devices) targeted by the click. */
+  actors: Actor[];
+  /** The secondary actors (external devices) targeted by the click. */
+  otherActors: string[];
+  /** The timestamp when the transaction was started, used for expiration. */
+  timestamp: number;
+}
+
+export interface MqttSubscribeMsg {
+  topic: string | string[];
+  action: "subscribe";
+  qos: 0 | 1 | 2;
+}
+
+export interface MqttUnsubscribeMsg {
+  topic: boolean | string | string[];
+  action: "unsubscribe";
+}
+
+/**
+ * Canonical alert categories emitted by the service.
+ * These machine-readable values let downstream flows distinguish lifecycle
+ * events, true watchdog outages and command validation failures without having
+ * to parse the human-readable `message` field.
+ */
+export type AlertEventType =
+  | "device_lifecycle_offline"
+  | "device_lifecycle_online"
+  | "device_unreachable"
+  | "device_recovered"
+  | "action_failed";
+
+/**
+ * Identifies which subsystem produced an alert.
+ */
+export type AlertEventSource =
+  | "homie_lifecycle"
+  | "watchdog"
+  | "live_telemetry"
+  | "action_validation";
+
+/**
+ * Defines the structure of the message payload sent to the 'Alerts' output.
+ */
+export interface AlertPayload {
+  /** The formatted, human-readable alert message. */
+  message: string;
+  /** The health status that triggered the alert. */
+  status: "unhealthy" | "healthy";
+  /** Machine-readable alert category for downstream routing logic. */
+  event_type: AlertEventType;
+  /** Machine-readable producer identifier for downstream routing logic. */
+  event_source: AlertEventSource;
+  /** The list of devices involved in the alert. */
+  devices: { name: string; reason: string }[];
+  /** Optional raw details of the event that triggered the alert. */
+  details?: unknown;
+}
