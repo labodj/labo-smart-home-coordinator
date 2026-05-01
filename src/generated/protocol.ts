@@ -3,7 +3,7 @@
  * Do not edit manually. Run tools/generate_lsh_protocol.py instead.
  */
 
-export const LSH_PROTOCOL_SPEC_REVISION = 2026043001 as const;
+export const LSH_PROTOCOL_SPEC_REVISION = 2026050101 as const;
 export const LSH_WIRE_PROTOCOL_MAJOR = 3 as const;
 
 export const LSH_PROTOCOL_KEYS = {
