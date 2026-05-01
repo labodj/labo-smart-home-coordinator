@@ -18,6 +18,7 @@ const allowedFilePatterns = [
   /^dist\/[^.][\w./-]*$/,
   /^docs\/[^.][\w./-]*\.md$/,
   /^examples\/[^.][\w./-]*\.json$/,
+  /^vendor\/lsh-protocol\/DOCS\.md$/,
   /^vendor\/lsh-protocol\/README\.md$/,
   /^vendor\/lsh-protocol\/LICENSE$/,
   /^vendor\/lsh-protocol\/NOTICE$/,

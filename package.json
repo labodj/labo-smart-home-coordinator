@@ -1,6 +1,6 @@
 {
   "name": "labo-smart-home-coordinator",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Standalone coordinator for devices implementing the public LSH MQTT/protocol contract.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -51,6 +51,7 @@
     "README.md",
     "CITATION.cff",
     "examples/",
+    "vendor/lsh-protocol/DOCS.md",
     "vendor/lsh-protocol/README.md",
     "vendor/lsh-protocol/docs/profiles-and-roles.md",
     "vendor/lsh-protocol/shared/lsh_protocol.md"
