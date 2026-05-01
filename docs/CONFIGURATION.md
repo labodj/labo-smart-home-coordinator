@@ -6,8 +6,8 @@ It describes the devices that belong to the LSH installation and the long-click
 actions the coordinator should execute. MQTT paths, timing and protocol settings
 are runtime options, not part of this file.
 
-Keep this file boring. It is not a general automation language and it should not
-try to describe Home Assistant entities, dashboards or presentation details. It
+Keep this file focused. It is not a general automation language and it should
+not describe Home Assistant entities, dashboards or presentation details. It
 only answers: which LSH devices exist, and what should a long click mean?
 
 ## Mental Model
@@ -20,10 +20,9 @@ Think of the config as a small map of the house:
 - `actors` are LSH targets controlled directly by this coordinator.
 - `otherActors` are external targets emitted as generic intents.
 
-The coordinator does not guess actions from device names. That is deliberate:
-guessing would be convenient until the first wrong relay toggles. It executes
-the action map you give it, and it refuses unsafe actions when target state is
-not authoritative.
+The coordinator does not infer actions from device names. It executes the action
+map you give it, and it refuses unsafe actions when target state is not
+authoritative.
 
 ## Minimal Valid Config
 
@@ -173,7 +172,7 @@ Rules:
 
 Before confirming a distributed click, the coordinator checks the current target
 snapshot. If the target state is missing or stale, the action fails cleanly
-instead of guessing the wrong toggle direction.
+instead of choosing a toggle direction from incomplete information.
 
 This is the main safety rule in the coordinator. A distributed click is only
 confirmed when the runtime knows enough to execute the action correctly.

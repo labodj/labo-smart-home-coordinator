@@ -29,8 +29,8 @@ LSH_COORDINATOR_CONFIG=./system-config.json \
 npx labo-smart-home-coordinator
 ```
 
-The config file is read at startup. For now, restart the process when changing
-the file; embedders can use `updateSystemConfig` for runtime reloads.
+The CLI reads the config file at startup. Restart the process after changing the
+file; library embedders can use `updateSystemConfig` for runtime updates.
 
 ## MQTT Authentication
 

@@ -74,9 +74,9 @@ produce:
 - a string, when the adapter exposes MQTT text as-is;
 - a `Buffer`, when the adapter preserves the raw MQTT payload.
 
-That behavior is deliberate. It lets wrappers stay boring: read `msg.topic`,
-read `msg.payload`, pass both to `processMqttMessage`, and let the coordinator
-normalize the domain payload once at the boundary.
+That behavior keeps wrappers small: read `msg.topic`, read `msg.payload`, pass
+both to `processMqttMessage`, and let the coordinator normalize the domain
+payload once at the boundary.
 
 For a Node-RED wrapper, this means the built-in `mqtt in` node can be configured
 with payload output set to `auto-detect` for JSON-based LSH installations. JSON

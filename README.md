@@ -3,47 +3,35 @@
 [![npm](https://img.shields.io/npm/v/labo-smart-home-coordinator.svg)](https://www.npmjs.com/package/labo-smart-home-coordinator)
 [![npm downloads](https://img.shields.io/npm/dm/labo-smart-home-coordinator.svg)](https://www.npmjs.com/package/labo-smart-home-coordinator)
 [![CI](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.github.com%2Frepos%2Flabodj%2Flabo-smart-home-coordinator%2Factions%2Fworkflows%2Fci.yaml%2Fruns%3Fbranch%3Dmain%26status%3Dsuccess%26per_page%3D1&query=%24.workflow_runs%5B0%5D.head_sha&label=CI&logo=github&color=2ea44f)](https://github.com/labodj/labo-smart-home-coordinator/actions/workflows/ci.yaml)
-[![Latest Release](https://img.shields.io/github/release/labodj/labo-smart-home-coordinator.svg)](https://github.com/labodj/labo-smart-home-coordinator/releases)
+[![Latest Release](https://img.shields.io/github/release/labodj/labo-smart-home-coordinator.svg)](https://github.com/labodj/labo-smart-home-coordinator/releases/latest)
 [![License](https://img.shields.io/github/license/labodj/labo-smart-home-coordinator.svg)](https://github.com/labodj/labo-smart-home-coordinator/blob/main/LICENSE)
 
 [![works with MQTT Homie](https://homieiot.github.io/img/works-with-homie.svg "works with MQTT Homie")](https://homieiot.github.io/)
 
-`labo-smart-home-coordinator` is the standalone runtime for the public LSH MQTT
-coordination contract. It listens to LSH device telemetry, keeps a live device
-registry, validates distributed long-click actions, emits actuator commands,
-publishes alerts and can route intents for non-LSH devices.
+`labo-smart-home-coordinator` is the standalone TypeScript runtime for the
+public LSH MQTT coordination contract. It listens to LSH device telemetry, keeps
+a live registry, validates distributed long-click actions, emits actuator
+commands, publishes alerts, and exposes generic intents for non-LSH devices.
 
-In practical terms, this is the piece that answers: "a button was long-pressed;
-what is safe to switch right now?" It can run as a CLI process, be embedded in a
-Node.js service, or sit behind a Node-RED wrapper.
+In practical terms, it answers one careful question: a button was long-pressed,
+so what is safe to switch right now?
 
 ## Why This Exists
 
-LSH devices already know how to report their configuration, state, Homie
-lifecycle and click events over MQTT. What they need is a small, strict runtime
-that answers a few practical questions:
+LSH devices already publish their configuration, state, Homie lifecycle, and
+click events over MQTT. This package adds the small runtime that coordinates
+across devices and refuses actions when the required state is not reliable.
 
-- Which devices are expected to exist?
-- Which button should control which actuators?
-- Is the target state fresh enough to execute a distributed click safely?
-- When should a bridge or controller be probed instead of spammed?
-- How should external targets be exposed without hard-coding a specific smart
-  home ecosystem?
+It keeps that responsibility focused:
 
-This package keeps that orchestration focused. Home Assistant discovery,
-dashboards and ecosystem-specific actions stay outside this coordinator, so the
-runtime can stay small, predictable and easy to reason about.
+- the config names the LSH devices and the click actions you want;
+- the coordinator checks whether target state is fresh enough to act;
+- LSH commands, alerts, and external actor intents stay separate;
+- Home Assistant discovery, dashboards, and ecosystem-specific commands remain
+  outside the core runtime.
 
-## How It Fits
-
-You need three things:
-
-- an MQTT broker that already carries LSH/Homie traffic;
-- a `system-config.json` file that describes devices and click actions;
-- either the built-in CLI, the MQTT adapter, or your own wrapper.
-
-The coordinator does not replace your broker. It consumes MQTT messages,
-decides what should happen, and publishes the resulting commands or intents.
+You can run it as a CLI process, embed it in a Node.js service, or use it
+through the Node-RED wrapper package.
 
 ## Install
 
@@ -53,10 +41,9 @@ npm install labo-smart-home-coordinator
 
 Node.js 18 or newer is required.
 
-## Run It From the CLI
+## Run It from the CLI
 
-The CLI owns the MQTT connection for you. Give it a broker URL and a
-`system-config.json` file:
+The CLI owns the MQTT connection for you:
 
 ```bash
 npx labo-smart-home-coordinator \
@@ -75,7 +62,7 @@ npx labo-smart-home-coordinator \
   --config ./system-config.json
 ```
 
-TLS and mutual TLS are supported from the CLI:
+TLS and mutual TLS are supported:
 
 ```bash
 npx labo-smart-home-coordinator \
@@ -86,14 +73,10 @@ npx labo-smart-home-coordinator \
   --config ./system-config.json
 ```
 
-See the full CLI and environment variable reference in
-[MQTT and CLI](https://github.com/labodj/labo-smart-home-coordinator/blob/main/docs/MQTT_AND_CLI.md).
-
 ## Use It as a Library
 
-Use the transport-agnostic coordinator when your application already owns MQTT
-or wants to feed messages from another source. The runtime does not care whether
-the message came from `mqtt`, Node-RED, a test fixture or a replay tool:
+Use the transport-agnostic runtime when your application already owns MQTT or
+wants to feed messages from another source:
 
 ```ts
 import { LaboSmartHomeCoordinator } from "labo-smart-home-coordinator";
@@ -115,15 +98,6 @@ await coordinator.processMqttMessage({
 });
 ```
 
-The input boundary is intentionally adapter-agnostic. For JSON-based LSH
-installations, `payload` may be an object, a JSON string or a `Buffer`
-containing JSON text. That means a future Node-RED wrapper can receive messages
-from the built-in `mqtt in` node in `auto-detect` mode and pass them through
-without custom parsing.
-
-MsgPack installations should preserve payloads as `Buffer`s, because MsgPack is
-binary and cannot be represented safely as a string.
-
 Use the MQTT adapter when you want the package to own the broker connection:
 
 ```ts
@@ -139,14 +113,10 @@ const runtime = new LaboSmartHomeCoordinatorMqtt({
 await runtime.start();
 ```
 
-The embedding guide is in
-[Embedding](https://github.com/labodj/labo-smart-home-coordinator/blob/main/docs/EMBEDDING.md).
+## Minimal Config
 
-## Configuration in One Minute
-
-The config file lists the devices the coordinator should know about and the
-button actions it should execute. Start with device names only, then add button
-actions one by one.
+The config file lists the LSH devices the coordinator should know about and the
+button actions it should execute.
 
 ```json
 {
@@ -178,76 +148,39 @@ That means: when device `ingresso` reports a long click on button `1`, toggle
 all actuators on device `cucina` and also emit an intent for
 `zigbee_table_lamp`.
 
-For a commented walkthrough, validation rules and larger examples, read
-[Configuration](https://github.com/labodj/labo-smart-home-coordinator/blob/main/docs/CONFIGURATION.md).
+## Runtime Behavior
 
-## Safe by Default
+The coordinator is conservative by design. It reuses retained `conf` and
+`state` snapshots, but it does not treat retained lifecycle traffic as proof
+that a device is alive right now. A distributed click is confirmed only when the
+target state is authoritative, and recovery probes are rate-limited so a broken
+device does not flood the broker.
 
-The coordinator is intentionally conservative:
-
-- it reuses retained `conf` and `state` snapshots, but does not treat retained
-  lifecycle traffic as proof of live reachability;
-- it refuses a distributed click when the target state is not authoritative;
-- it rate-limits recovery probes so a broken device does not flood the broker;
-- it separates LSH commands, alerts and external actor intents cleanly.
-
-That behavior is more strict than a quick automation script, but it is what you
-want from a runtime that may control real lights and relays every day.
-
-## MQTT Topics
-
-For every configured device, the runtime listens to:
-
-- `LSH/<device>/conf`
-- `LSH/<device>/state`
-- `LSH/<device>/events`
-- `LSH/<device>/bridge`
-- `homie/5/<device>/$state`
-
-It publishes device commands to `LSH/<device>/IN` and bridge-wide commands to
-the configured service topic, usually `LSH/Node-RED/SRV` for existing LSH
-installations.
-
-## Other Actors
-
-`otherActors` are intentionally generic. The coordinator does not assume
-whether `zigbee_table_lamp` is Home Assistant, Zigbee2MQTT, Tasmota or a custom
-service. It emits a small intent:
-
-```json
-{
-  "otherActors": ["zigbee_table_lamp"],
-  "stateToSet": true
-}
-```
-
-The CLI/MQTT adapter can publish those intents to a topic of your choice with
-`--other-actors-topic`. If you embed the library, listen to the `otherActors`
-event and route it however your home automation stack expects.
-
-This keeps the package useful outside a single house setup: the LSH decision is
-made here, while the ecosystem-specific translation remains yours.
-
-## Home Assistant Discovery
-
-This package does not create Home Assistant discovery entities. Keep discovery
-decoupled by pairing it with
-[`node-red-contrib-homie-home-assistant-discovery`](https://flows.nodered.org/node/node-red-contrib-homie-home-assistant-discovery)
-or with the standalone
-[`homie-home-assistant-discovery`](https://www.npmjs.com/package/homie-home-assistant-discovery)
-library.
-
-The split is deliberate: this coordinator handles LSH runtime correctness;
-Homie-to-Home-Assistant discovery handles names, entity platforms, icons and
-discovery IDs.
+It subscribes to `conf`, `state`, `events`, `bridge`, and Homie `$state` topics
+for every configured device. It publishes LSH commands to device `IN` topics and
+bridge-wide probes to the configured service topic.
 
 ## Documentation
 
-- [Configuration](https://github.com/labodj/labo-smart-home-coordinator/blob/main/docs/CONFIGURATION.md)
-- [MQTT and CLI](https://github.com/labodj/labo-smart-home-coordinator/blob/main/docs/MQTT_AND_CLI.md)
-- [Embedding](https://github.com/labodj/labo-smart-home-coordinator/blob/main/docs/EMBEDDING.md)
-- [Lifecycle Contract](https://github.com/labodj/labo-smart-home-coordinator/blob/main/LIFECYCLE.md)
-- [LSH protocol reference](https://github.com/labodj/labo-smart-home-coordinator/blob/main/vendor/lsh-protocol/shared/lsh_protocol.md)
+The full documentation map lives in
+[DOCS.md](https://github.com/labodj/labo-smart-home-coordinator/blob/main/DOCS.md).
+Start there for configuration, CLI options, embedding, MQTT behavior, and the
+lifecycle contract.
+
+The Node-RED sibling is
+[`node-red-contrib-lsh-logic`](https://flows.nodered.org/node/node-red-contrib-lsh-logic).
+It wraps this runtime with Node-RED editor fields, context access, dynamic MQTT
+subscriptions, and physical outputs.
+
+## Maintainer Notes
+
+The local quality gate runs type checking, linting, Markdown checks, formatting
+checks, package validation, coverage, and a production dependency audit:
+
+```bash
+npm ci
+npm run check
+```
 
 ## License
 

@@ -116,8 +116,8 @@ Distributed long-click actions use a request, ACK and confirm lifecycle.
 
 The runtime validates targets before confirming the action. A click fails fast
 when a target device is reachable but lacks an authoritative actuator snapshot.
-Guessing would be worse than rejecting that user action and waiting for the next
-valid event.
+Acting from incomplete state would be worse than rejecting that user action and
+waiting for the next valid event.
 
 Runtime config updates clear pending click transactions. In-flight distributed
 clicks are intentionally failed rather than preserved across a config change.
