@@ -2,7 +2,7 @@
 
 [![npm](https://img.shields.io/npm/v/labo-smart-home-coordinator.svg)](https://www.npmjs.com/package/labo-smart-home-coordinator)
 [![npm downloads](https://img.shields.io/npm/dm/labo-smart-home-coordinator.svg)](https://www.npmjs.com/package/labo-smart-home-coordinator)
-[![CI](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.github.com%2Frepos%2Flabodj%2Flabo-smart-home-coordinator%2Factions%2Fworkflows%2Fci.yaml%2Fruns%3Fbranch%3Dmain%26status%3Dsuccess%26per_page%3D1&query=%24.workflow_runs%5B0%5D.head_sha&label=CI&logo=github&color=2ea44f)](https://github.com/labodj/labo-smart-home-coordinator/actions/workflows/ci.yaml)
+[![CI](https://github.com/labodj/labo-smart-home-coordinator/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/labodj/labo-smart-home-coordinator/actions/workflows/ci.yaml)
 [![Latest Release](https://img.shields.io/github/release/labodj/labo-smart-home-coordinator.svg)](https://github.com/labodj/labo-smart-home-coordinator/releases/latest)
 [![License](https://img.shields.io/github/license/labodj/labo-smart-home-coordinator.svg)](https://github.com/labodj/labo-smart-home-coordinator/blob/main/LICENSE)
 
