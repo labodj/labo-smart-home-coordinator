@@ -35,7 +35,7 @@ coordinator.on("alert", (alert) => {
 });
 
 coordinator.on("otherActors", (command) => {
-  // Translate external actor intents to your own ecosystem.
+  // Translate external actor intents to your own integration.
 });
 
 await coordinator.start();
@@ -57,8 +57,8 @@ await coordinator.processMqttMessage({
 });
 ```
 
-The coordinator does not subscribe by itself in this mode. Ask it for the exact
-subscription map and apply it in your host runtime:
+The coordinator does not subscribe by itself in this mode. Read the exact
+subscription map from it and apply it in your host runtime:
 
 ```ts
 const subscriptions = coordinator.getSubscriptions();
@@ -67,7 +67,7 @@ await mqttClient.subscribeAsync(subscriptions);
 
 ## Payload Shapes
 
-The coordinator accepts the same payload shapes that real MQTT adapters tend to
+The coordinator accepts the same payload shapes that common MQTT adapters
 produce:
 
 - an object, when a JSON payload has already been parsed;
@@ -80,14 +80,14 @@ payload once at the boundary.
 
 For a Node-RED wrapper, this means the built-in `mqtt in` node can be configured
 with payload output set to `auto-detect` for JSON-based LSH installations. JSON
-objects, JSON strings and JSON Buffers are all accepted by the coordinator.
+objects, JSON strings, and JSON Buffers are all accepted by the coordinator.
 
 For MsgPack installations, keep the payload binary. MsgPack frames must reach
 the coordinator as `Buffer`s because converting binary payloads to strings is
 lossy and adapter-dependent.
 
-A minimal Node-RED wrapper can therefore do very little work: pass inbound MQTT
-messages to `processMqttMessage`, send `mqtt` events to `mqtt out`, and expose
+A minimal Node-RED wrapper can stay thin: pass inbound MQTT messages to
+`processMqttMessage`, send `mqtt` events to `mqtt out`, and expose
 `otherActors` / `alert` events on separate outputs.
 
 ## MQTT Adapter
@@ -135,8 +135,8 @@ const runtime = new LaboSmartHomeCoordinator({
 Keys use `otherDevicesPrefix` plus the actor name. With the default prefix,
 actor `bedside_lamp` is read from `other_devices.bedside_lamp`.
 
-Return booleans from this reader. Unknown, missing or non-boolean states are
-treated as unsafe for toggle decisions.
+Return booleans from this reader. Unknown, missing or non-boolean states are not
+used for toggle decisions.
 
 ## Events
 
@@ -154,7 +154,7 @@ treated as unsafe for toggle decisions.
 | `debug`       | Original inbound MQTT message after processing. |
 
 The coordinator installs a default no-op `error` listener so non-fatal service
-errors do not crash embedders that only use a logger.
+errors do not crash host applications that only use a logger.
 
 ## Updating Config at Runtime
 

@@ -1,17 +1,17 @@
 # MQTT and CLI
 
-The CLI is the fastest way to run the coordinator as a standalone service. It
+The CLI is the most direct way to run the coordinator as a standalone service. It
 loads a JSON config file, connects to MQTT, subscribes to the generated topic set
 and publishes coordinator outputs back to the broker.
 
 If you embed the coordinator in another runtime instead of using the CLI, the
 input side does not require a specific MQTT client. The coordinator accepts
-object, string and Buffer payloads for JSON protocol topics, so adapters can
+object, string, and Buffer payloads for JSON protocol topics, so adapters can
 stay thin and predictable.
 
-Use this mode when you want one process whose only job is LSH coordination. If
-you already have Node-RED or another orchestration runtime, embedding may be a
-better fit.
+Use this mode when you want one process dedicated to LSH coordination. If you
+already have Node-RED or another orchestration runtime, embedding may be a better
+fit.
 
 ## Basic Run
 
@@ -30,7 +30,7 @@ npx labo-smart-home-coordinator
 ```
 
 The CLI reads the config file at startup. Restart the process after changing the
-file; library embedders can use `updateSystemConfig` for runtime updates.
+file; library users can call `updateSystemConfig` for runtime updates.
 
 ## MQTT Authentication
 

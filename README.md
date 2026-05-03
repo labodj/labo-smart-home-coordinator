@@ -15,20 +15,20 @@ a live registry, validates distributed long-click actions, emits actuator
 commands, publishes alerts, and exposes generic intents for non-LSH devices.
 
 In practical terms, it answers one careful question: a button was long-pressed,
-so what is safe to switch right now?
+so what can be switched with the state available right now?
 
 ## Why This Exists
 
 LSH devices already publish their configuration, state, Homie lifecycle, and
-click events over MQTT. This package adds the small runtime that coordinates
-across devices and refuses actions when the required state is not reliable.
+click events over MQTT. This package adds the focused runtime that coordinates
+across devices and rejects actions when the required state is not reliable.
 
 It keeps that responsibility focused:
 
 - the config names the LSH devices and the click actions you want;
 - the coordinator checks whether target state is fresh enough to act;
 - LSH commands, alerts, and external actor intents stay separate;
-- Home Assistant discovery, dashboards, and ecosystem-specific commands remain
+- Home Assistant entities, dashboards, and integration-specific commands remain
   outside the core runtime.
 
 You can run it as a CLI process, embed it in a Node.js service, or use it
@@ -154,8 +154,8 @@ all actuators on device `cucina` and also emit an intent for
 The coordinator is conservative by design. It reuses retained `conf` and
 `state` snapshots, but it does not treat retained lifecycle traffic as proof
 that a device is alive right now. A distributed click is confirmed only when the
-target state is authoritative, and recovery probes are rate-limited so a broken
-device does not flood the broker.
+target state is authoritative, and recovery probes are rate-limited so an
+unreachable device does not flood the broker.
 
 It subscribes to `conf`, `state`, `events`, `bridge`, and Homie `$state` topics
 for every configured device. It publishes LSH commands to device `IN` topics and

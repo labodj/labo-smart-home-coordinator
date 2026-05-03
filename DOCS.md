@@ -35,9 +35,8 @@ Use the CLI when you want one process dedicated to LSH coordination. It loads a
 JSON config file, connects to MQTT, subscribes to the generated topic set, and
 publishes outputs back to the broker.
 
-Use `LaboSmartHomeCoordinatorMqtt` when your application is still happy to let
-this package own the broker connection, but you want to construct and manage it
-from code.
+Use `LaboSmartHomeCoordinatorMqtt` when your application can let this package
+own the broker connection, but you want to construct and manage it from code.
 
 Use `LaboSmartHomeCoordinator` when another runtime already owns transport. In
 that mode the coordinator receives messages, emits semantic events, and leaves
@@ -56,9 +55,9 @@ state freshness, recovery, watchdog behavior, alerts, and generic external actor
 intents.
 
 It does not describe Home Assistant entities, dashboards, UI names, or
-ecosystem-specific commands. Those details belong in the integration that
+integration-specific commands. Those details belong in the integration that
 receives the coordinator output. Keeping that split visible makes the config
-easier to review and safer to change.
+easier to review and less risky to change.
 
 ## Wider LSH Stack
 

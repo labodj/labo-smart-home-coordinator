@@ -6,9 +6,10 @@ It describes the devices that belong to the LSH installation and the long-click
 actions the coordinator should execute. MQTT paths, timing and protocol settings
 are runtime options, not part of this file.
 
-Keep this file focused. It is not a general automation language and it should
-not describe Home Assistant entities, dashboards or presentation details. It
-only answers: which LSH devices exist, and what should a long click mean?
+Keep this file focused. It is not a general automation language; Home Assistant
+entities, dashboards, and presentation details belong in the integration layer.
+This file only answers: which LSH devices exist, and what should a long click
+mean?
 
 ## Mental Model
 
@@ -21,7 +22,7 @@ Think of the config as a small map of the house:
 - `otherActors` are external targets emitted as generic intents.
 
 The coordinator does not infer actions from device names. It executes the action
-map you give it, and it refuses unsafe actions when target state is not
+map you give it, and it rejects actions when target state is not
 authoritative.
 
 ## Minimal Valid Config
@@ -46,8 +47,8 @@ track lifecycle, validate snapshots and run health checks for the device.
 
 ## Commented Example
 
-JSON files cannot contain comments, so this block is `jsonc` for learning. Use
-the copyable JSON block below in real files.
+JSON files cannot contain comments, so this block is `jsonc` for explanation.
+Use the copyable JSON block below in real files.
 
 ```jsonc
 {
@@ -134,7 +135,7 @@ using letters, digits, `_` or `-`. Names are checked case-insensitively, so
 `Cucina` and `cucina` cannot coexist.
 
 This strictness keeps MQTT topic generation deterministic. A config typo should
-fail loudly at startup, not create a half-working topic tree.
+fail clearly at startup instead of creating a half-working topic tree.
 
 ## Button Actions
 
@@ -174,7 +175,7 @@ Before confirming a distributed click, the coordinator checks the current target
 snapshot. If the target state is missing or stale, the action fails cleanly
 instead of choosing a toggle direction from incomplete information.
 
-This is the main safety rule in the coordinator. A distributed click is only
+This is the main state rule in the coordinator. A distributed click is only
 confirmed when the runtime knows enough to execute the action correctly.
 
 ## Other Actors
@@ -200,16 +201,16 @@ When the click runs, the coordinator emits:
 
 If you use the CLI/MQTT adapter, configure `--other-actors-topic` and the
 intent is published there. If you embed the library, listen to the
-`otherActors` event and translate the intent to your own ecosystem.
+`otherActors` event and translate the intent to your own integration.
 
 The coordinator can also receive an optional `otherActorStateReader` from
 library consumers. That lets it read current external actor state when deciding
-toggle direction, without hard-coding Home Assistant, Zigbee2MQTT, Tasmota or
-any other integration.
+toggle direction, without binding this package to Home Assistant, Zigbee2MQTT,
+Tasmota, or any other integration.
 
 If you do not provide an external state reader, `otherActors` still work as
 one-way intents when the coordinator can derive the desired state from LSH
-targets. Pure external-only toggles need state feedback, otherwise the
+targets. Pure external-only toggles need state feedback; otherwise the
 coordinator cannot know whether the next action should turn something on or off.
 
 ## Runtime Options
