@@ -1,7 +1,12 @@
-import { DEFAULT_COORDINATOR_OPTIONS, normalizeCoordinatorOptions } from "../config";
+import {
+  DEFAULT_COORDINATOR_OPTIONS,
+  DEFAULT_COORDINATOR_SUBSCRIPTION_QOS,
+  normalizeCoordinatorOptions,
+} from "../config";
 import {
   buildCoordinatorMqttSubscriptions,
   buildNodeRedSubscriptionMessages,
+  explainCoordinatorMqttSubscriptions,
 } from "../subscriptions";
 import type { SystemConfig } from "../types";
 
@@ -57,6 +62,27 @@ describe("standalone coordinator configuration helpers", () => {
     );
   });
 
+  it("normalizes and validates subscription QoS policy overrides", () => {
+    expect(
+      normalizeCoordinatorOptions({
+        subscriptionQos: {
+          events: 1,
+          homieState: 0,
+        },
+      }).subscriptionQos,
+    ).toEqual({
+      ...DEFAULT_COORDINATOR_SUBSCRIPTION_QOS,
+      events: 1,
+      homieState: 0,
+    });
+
+    expect(() =>
+      normalizeCoordinatorOptions({
+        subscriptionQos: { events: 3 as 0 | 1 | 2 },
+      }),
+    ).toThrow("Events Subscription QoS must be 0, 1 or 2");
+  });
+
   it("builds the exact MQTT subscription set for every configured device", () => {
     const subscriptions = buildCoordinatorMqttSubscriptions(
       { homieBasePath: "homie/5/", lshBasePath: "LSH/" },
@@ -75,6 +101,80 @@ describe("standalone coordinator configuration helpers", () => {
       "LSH/cucina/bridge": { qos: 2 },
       "homie/5/cucina/$state": { qos: 1 },
     });
+  });
+
+  it("applies custom subscription QoS policy to the generated topic set", () => {
+    const subscriptions = buildCoordinatorMqttSubscriptions(
+      {
+        homieBasePath: "homie/5/",
+        lshBasePath: "LSH/",
+        subscriptionQos: {
+          conf: 1,
+          state: 1,
+          events: 2,
+          bridge: 1,
+          homieState: 0,
+        },
+      },
+      { devices: [{ name: "ingresso" }] },
+    );
+
+    expect(subscriptions).toEqual({
+      "LSH/ingresso/conf": { qos: 1 },
+      "LSH/ingresso/state": { qos: 1 },
+      "LSH/ingresso/events": { qos: 2 },
+      "LSH/ingresso/bridge": { qos: 1 },
+      "homie/5/ingresso/$state": { qos: 0 },
+    });
+  });
+
+  it("explains generated subscriptions in a stable CLI-friendly shape", () => {
+    expect(
+      explainCoordinatorMqttSubscriptions(
+        {
+          homieBasePath: "homie/5/",
+          lshBasePath: "LSH/",
+          subscriptionQos: { bridge: 1 },
+        },
+        { devices: [{ name: "ingresso" }] },
+      ),
+    ).toEqual([
+      {
+        topic: "LSH/ingresso/bridge",
+        qos: 1,
+        device: "ingresso",
+        channel: "bridge",
+        purpose: "bridge-local diagnostics and service replies",
+      },
+      {
+        topic: "LSH/ingresso/conf",
+        qos: 2,
+        device: "ingresso",
+        channel: "conf",
+        purpose: "retained device configuration snapshots",
+      },
+      {
+        topic: "LSH/ingresso/events",
+        qos: 2,
+        device: "ingresso",
+        channel: "events",
+        purpose: "controller-backed device events",
+      },
+      {
+        topic: "LSH/ingresso/state",
+        qos: 2,
+        device: "ingresso",
+        channel: "state",
+        purpose: "retained and live actuator state snapshots",
+      },
+      {
+        topic: "homie/5/ingresso/$state",
+        qos: 1,
+        device: "ingresso",
+        channel: "homieState",
+        purpose: "Homie lifecycle state",
+      },
+    ]);
   });
 
   it("groups subscription maps into Node-RED mqtt-in control messages for wrappers", () => {

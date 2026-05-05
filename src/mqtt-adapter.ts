@@ -9,13 +9,10 @@ import mqtt from "mqtt";
 import type { IClientOptions } from "mqtt";
 
 import { LaboSmartHomeCoordinator } from "./LaboSmartHomeCoordinator";
+import type { CoordinatorOptionsInput } from "./config";
 import type { CoordinatorLogger } from "./LaboSmartHomeCoordinator";
-import type {
-  CoordinatorOptions,
-  MqttMessage,
-  OtherActorsCommandPayload,
-  SystemConfig,
-} from "./types";
+import type { MqttMessage, OtherActorsCommandPayload, SystemConfig } from "./types";
+import type { CoordinatorSubscriptionMap } from "./subscriptions";
 
 /**
  * Small subset of the MQTT.js async client used by this adapter.
@@ -29,6 +26,7 @@ export interface CoordinatorMqttClient {
     listener: (topic: string, payload: Buffer, packet: { retain?: boolean }) => void,
   ): this;
   subscribeAsync(subscriptions: Record<string, { qos: 0 | 1 | 2 }>): Promise<unknown>;
+  unsubscribeAsync(topics: string | string[]): Promise<unknown>;
   publishAsync(
     topic: string,
     payload: string | Buffer,
@@ -48,7 +46,7 @@ export type CoordinatorMqttClientFactory = (
 /**
  * Options for the broker-owning standalone adapter.
  */
-export interface LaboSmartHomeCoordinatorMqttOptions extends Partial<CoordinatorOptions> {
+export interface LaboSmartHomeCoordinatorMqttOptions extends CoordinatorOptionsInput {
   brokerUrl: string;
   systemConfig: SystemConfig;
   mqttOptions?: IClientOptions;
@@ -157,6 +155,25 @@ export class LaboSmartHomeCoordinatorMqtt {
     await this.coordinator.flush();
   }
 
+  public async reloadSystemConfig(systemConfig: SystemConfig): Promise<void> {
+    const previousSubscriptions = this.coordinator.getSubscriptions();
+    await this.coordinator.updateSystemConfig(systemConfig);
+    this.options.systemConfig = systemConfig;
+
+    const client = this.client;
+    if (!client) {
+      return;
+    }
+
+    const nextSubscriptions = this.coordinator.getSubscriptions();
+    await client.subscribeAsync(nextSubscriptions);
+
+    const removedTopics = removedSubscriptionTopics(previousSubscriptions, nextSubscriptions);
+    if (removedTopics.length > 0) {
+      await client.unsubscribeAsync(removedTopics);
+    }
+  }
+
   private wireCoordinatorOutputs(): void {
     this.coordinator.on("mqtt", (message) => {
       this.messageQueue = this.messageQueue.then(() => this.publishMqttMessage(message));
@@ -214,3 +231,11 @@ export class LaboSmartHomeCoordinatorMqtt {
     });
   }
 }
+
+const removedSubscriptionTopics = (
+  previousSubscriptions: CoordinatorSubscriptionMap,
+  nextSubscriptions: CoordinatorSubscriptionMap,
+): string[] =>
+  Object.keys(previousSubscriptions)
+    .filter((topic) => !(topic in nextSubscriptions))
+    .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));

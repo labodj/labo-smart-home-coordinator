@@ -10,6 +10,7 @@
 import { EventEmitter } from "node:events";
 
 import { normalizeCoordinatorOptions } from "./config";
+import type { CoordinatorOptionsInput } from "./config";
 import { LshCodec } from "./LshCodec";
 import { LshLogicService } from "./LshLogicService";
 import { createAppValidators } from "./schemas";
@@ -75,7 +76,7 @@ export interface LaboSmartHomeCoordinatorEvents {
 /**
  * Runtime options required to embed the coordinator without owning MQTT.
  */
-export interface LaboSmartHomeCoordinatorRuntimeOptions extends Partial<CoordinatorOptions> {
+export interface LaboSmartHomeCoordinatorRuntimeOptions extends CoordinatorOptionsInput {
   systemConfig: SystemConfig;
   otherActorStateReader?: OtherActorStateReader;
   logger?: CoordinatorLogger;

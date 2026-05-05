@@ -2,7 +2,14 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createLogger, loadMqttOptions, loadSystemConfig, parseCliArgs } from "../cli";
+import {
+  buildCliInspectionReport,
+  createLogger,
+  loadMqttOptions,
+  loadSystemConfig,
+  parseCliArgs,
+  reloadCoordinatorConfig,
+} from "../cli";
 
 describe("CLI helpers", () => {
   it("parses command line arguments over environment defaults", () => {
@@ -52,6 +59,16 @@ describe("CLI helpers", () => {
           "LABO/service",
           "--protocol",
           "msgpack",
+          "--qos-conf",
+          "1",
+          "--qos-state",
+          "1",
+          "--qos-events",
+          "2",
+          "--qos-bridge",
+          "1",
+          "--qos-homie-state",
+          "0",
           "--other-devices-prefix",
           "external",
           "--click-timeout",
@@ -90,6 +107,13 @@ describe("CLI helpers", () => {
       lshBasePath: "LABO/",
       serviceTopic: "LABO/service",
       protocol: "msgpack",
+      subscriptionQos: {
+        conf: 1,
+        state: 1,
+        events: 2,
+        bridge: 1,
+        homieState: 0,
+      },
       otherDevicesPrefix: "external",
       clickTimeout: 3,
       clickCleanupInterval: 31,
@@ -116,12 +140,16 @@ describe("CLI helpers", () => {
         ),
         LSH_COORDINATOR_LOG_LEVEL: "warn",
         LSH_COORDINATOR_CLICK_TIMEOUT: "7",
+        LSH_COORDINATOR_QOS_BRIDGE: "1",
       }),
     ).toMatchObject({
       rejectUnauthorized: false,
       caPaths: ["ca-one.pem", "ca-two.pem"],
       logLevel: "warn",
       clickTimeout: 7,
+      subscriptionQos: {
+        bridge: 1,
+      },
     });
   });
 
@@ -164,6 +192,7 @@ describe("CLI helpers", () => {
       "must be silent, error, warn, info or debug",
     );
     expect(() => parseCliArgs(["--protocol", "xml"], {})).toThrow("must be json or msgpack");
+    expect(() => parseCliArgs(["--qos-events", "3"], {})).toThrow("must be 0, 1 or 2");
     expect(() => parseCliArgs(["--mqtt-version", "3"], {})).toThrow("must be 4 or 5");
     expect(() => parseCliArgs(["--cert", "client.crt"], {})).toThrow(
       "--cert and --key must be used together",
@@ -208,6 +237,101 @@ describe("CLI helpers", () => {
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
+  });
+
+  it("reloads runtime config from disk for SIGHUP handling", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "lsh-coordinator-reload-test-"));
+    try {
+      const configPath = join(tempRoot, "system-config.json");
+      await writeFile(configPath, '{"devices":[{"name":"source"}]}');
+      const coordinator = {
+        reloadSystemConfig: jest.fn().mockResolvedValue(undefined),
+      };
+      const logger = {
+        info: jest.fn(),
+      };
+
+      await reloadCoordinatorConfig(coordinator, { configPath }, logger);
+
+      expect(coordinator.reloadSystemConfig).toHaveBeenCalledWith({
+        devices: [{ name: "source" }],
+      });
+      expect(logger.info).toHaveBeenCalledWith(`Reloaded coordinator config from ${configPath}.`);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects invalid reload config before touching the runtime", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "lsh-coordinator-reload-test-"));
+    try {
+      const configPath = join(tempRoot, "system-config.json");
+      await writeFile(configPath, '{"devices":[{"name":"bad/name"}]}');
+      const coordinator = {
+        reloadSystemConfig: jest.fn().mockResolvedValue(undefined),
+      };
+
+      await expect(reloadCoordinatorConfig(coordinator, { configPath })).rejects.toThrow(
+        "Invalid coordinator config",
+      );
+      expect(coordinator.reloadSystemConfig).not.toHaveBeenCalled();
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("builds a dry-run inspection report for config and subscriptions", () => {
+    const report = buildCliInspectionReport(
+      parseCliArgs(
+        ["--print-effective-config", "--explain-subscriptions", "--qos-bridge", "1"],
+        {},
+      ),
+      { devices: [{ name: "source" }] },
+    );
+
+    expect(report).toMatchObject({
+      valid: true,
+      effectiveConfig: {
+        coordinatorOptions: {
+          lshBasePath: "LSH/",
+          homieBasePath: "homie/5/",
+          subscriptionQos: {
+            bridge: 1,
+          },
+        },
+        systemConfig: {
+          devices: [{ name: "source" }],
+        },
+      },
+      subscriptions: [
+        {
+          topic: "LSH/source/bridge",
+          qos: 1,
+          channel: "bridge",
+        },
+        {
+          topic: "LSH/source/conf",
+          qos: 2,
+          channel: "conf",
+        },
+        {
+          topic: "LSH/source/events",
+          qos: 2,
+          channel: "events",
+        },
+        {
+          topic: "LSH/source/state",
+          qos: 2,
+          channel: "state",
+        },
+        {
+          topic: "homie/5/source/$state",
+          qos: 1,
+          channel: "homieState",
+        },
+      ],
+    });
+    expect(report.effectiveConfig?.coordinatorOptions).not.toHaveProperty("brokerUrl");
   });
 
   it("creates a level-aware logger", () => {

@@ -85,6 +85,23 @@ describe("LshLogicService - Core & Config", () => {
       expect(service.getDeviceRegistry()[""]).toBeUndefined();
     });
 
+    it("should suppress repeated unhandled-topic logs per topic", () => {
+      loadConfig();
+
+      const topic = "unhandled/noisy/topic";
+      expect(service.processMessage(topic, {}).logs).toContain(
+        `Message on unhandled topic: ${topic}`,
+      );
+      expect(service.processMessage(topic, {}).logs).toContain(
+        `Message on unhandled topic: ${topic}`,
+      );
+      expect(service.processMessage(topic, {}).logs).toContain(
+        `Message on unhandled topic: ${topic}`,
+      );
+      expect(service.processMessage(topic, {}).logs).toEqual([]);
+      expect(service.processMessage(topic, {}).logs).toEqual([]);
+    });
+
     it("should prune devices from the registry when config is updated", () => {
       loadConfig();
       setDeviceOnline("device-sender");
@@ -949,12 +966,29 @@ describe("LshLogicService - Core & Config", () => {
       });
 
       expect(result.stateChanged).toBe(false);
-      expect(result.messages).toEqual({});
+      expect(result.messages[Output.Lsh]).toBeUndefined();
       expect(result.warnings).toEqual([]);
       expect(result.errors).toEqual([]);
       expect(result.logs).toContain(
         "Bridge diagnostic from 'actor1': actuator_command_storm_dropped. Ignoring it for controller reachability and click logic.",
       );
+      expect(getAlertPayload(result)).toMatchObject({
+        status: "unhealthy",
+        event_type: "bridge_diagnostic",
+        event_source: "bridge_diagnostic",
+        devices: [
+          {
+            name: "actor1",
+            reason: "Bridge diagnostic 'actuator_command_storm_dropped'",
+          },
+        ],
+        details: {
+          event: "diagnostic",
+          kind: "actuator_command_storm_dropped",
+          pending_ms: 1000,
+          mutation_count: 32,
+        },
+      });
       expect(service.getDeviceRegistry().actor1).toBeUndefined();
     });
 

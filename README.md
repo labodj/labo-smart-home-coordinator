@@ -161,6 +161,12 @@ It subscribes to `conf`, `state`, `events`, `bridge`, and Homie `$state` topics
 for every configured device. It publishes LSH commands to device `IN` topics and
 bridge-wide probes to the configured service topic.
 
+Use `--validate-config`, `--print-effective-config`, or
+`--explain-subscriptions` to inspect a generated config without connecting to
+MQTT. The subscription QoS policy is configurable through `subscriptionQos` in
+library mode or the `--qos-*` CLI flags. Send `SIGHUP` to the standalone CLI
+process to reload the JSON config file without reconnecting MQTT.
+
 ## Documentation
 
 The full documentation map lives in

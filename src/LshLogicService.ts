@@ -55,6 +55,9 @@ import type {
 import { formatAlertMessage, normalizeActors } from "./utils";
 import type { ValidateFunction } from "ajv";
 
+const UNHANDLED_TOPIC_INITIAL_LOG_LIMIT = 3;
+const UNHANDLED_TOPIC_REMINDER_INTERVAL = 100;
+
 /**
  * Custom error for handling click validation failures gracefully. This allows
  * the service to distinguish between different failure types and provide
@@ -112,6 +115,7 @@ export class LshLogicService {
   private deviceConfigMap: Map<string, DeviceEntry> = new Map();
   private snapshotRecoveryTimestamps: Map<string, number> = new Map();
   private queuedSnapshotRecoveryFrames: Map<string, number> = new Map();
+  private unhandledTopicLogCounts: Map<string, number> = new Map();
 
   /**
    * Constructs a new LshLogicService. Dependencies are injected to promote
@@ -377,6 +381,7 @@ export class LshLogicService {
 
     this.systemConfig = newConfig;
     this.deviceConfigMap.clear();
+    this.unhandledTopicLogCounts.clear();
     // Simplicity over improbable race handling: any successful config load invalidates
     // the assumptions under which pending network clicks were validated.
     const clearedPendingClicks = this.clickManager.clearAll();
@@ -425,6 +430,7 @@ export class LshLogicService {
       this.systemConfig !== null || this.deviceManager.getRegisteredDeviceNames().length > 0;
     this.systemConfig = null;
     this.deviceConfigMap.clear();
+    this.unhandledTopicLogCounts.clear();
     const result = createEmptyServiceResult();
     this.clickManager.clearAll();
     this.watchdog.reset();
@@ -790,9 +796,21 @@ export class LshLogicService {
 
   private _handleUnhandledTopic(topic: string): ServiceResult {
     const result = createEmptyServiceResult();
-    // Keep unhandled-topic logging explicit so unexpected broker traffic stays visible
-    // during commissioning and debugging.
-    result.logs.push(`Message on unhandled topic: ${topic}`);
+    const seenCount = (this.unhandledTopicLogCounts.get(topic) ?? 0) + 1;
+    this.unhandledTopicLogCounts.set(topic, seenCount);
+
+    if (
+      seenCount <= UNHANDLED_TOPIC_INITIAL_LOG_LIMIT ||
+      seenCount % UNHANDLED_TOPIC_REMINDER_INTERVAL === 0
+    ) {
+      // Keep early unhandled-topic logs explicit so unexpected broker traffic
+      // stays visible during commissioning, then suppress repeats per topic.
+      const reminder =
+        seenCount <= UNHANDLED_TOPIC_INITIAL_LOG_LIMIT
+          ? ""
+          : ` (seen ${seenCount} times; intermediate repeats suppressed)`;
+      result.logs.push(`Message on unhandled topic: ${topic}${reminder}`);
+    }
     return result;
   }
 
@@ -1346,6 +1364,19 @@ export class LshLogicService {
     if (isBridgeDiagnosticPayload(bridgePayload)) {
       result.logs.push(
         `Bridge diagnostic from '${deviceName}': ${bridgePayload.kind}. Ignoring it for controller reachability and click logic.`,
+      );
+      this._emitAlert(
+        result,
+        [
+          {
+            name: deviceName,
+            reason: `Bridge diagnostic '${bridgePayload.kind}'`,
+          },
+        ],
+        "unhealthy",
+        "bridge_diagnostic",
+        "bridge_diagnostic",
+        bridgePayload,
       );
       return result;
     }

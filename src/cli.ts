@@ -12,9 +12,12 @@ import { delimiter } from "node:path";
 
 import type { IClientOptions } from "mqtt";
 
+import { DEFAULT_COORDINATOR_SUBSCRIPTION_QOS, normalizeCoordinatorOptions } from "./config";
 import { LaboSmartHomeCoordinatorMqtt } from "./mqtt-adapter";
+import { createAppValidators } from "./schemas";
+import { explainCoordinatorMqttSubscriptions } from "./subscriptions";
 import type { CoordinatorLogger } from "./LaboSmartHomeCoordinator";
-import type { CoordinatorOptions, SystemConfig } from "./types";
+import type { CoordinatorOptions, MqttQoS, SystemConfig } from "./types";
 
 /**
  * Runtime logging level accepted by the CLI.
@@ -44,6 +47,22 @@ export interface CliOptions extends CoordinatorOptions {
   otherActorsTopic?: string;
   alertsTopic?: string;
   logLevel: LogLevel;
+  validateConfig: boolean;
+  printEffectiveConfig: boolean;
+  explainSubscriptions: boolean;
+}
+
+export interface CliInspectionReport {
+  valid: true;
+  effectiveConfig?: {
+    coordinatorOptions: CoordinatorOptions;
+    systemConfig: SystemConfig;
+  };
+  subscriptions?: ReturnType<typeof explainCoordinatorMqttSubscriptions>;
+}
+
+export interface ReloadableCoordinator {
+  reloadSystemConfig(systemConfig: SystemConfig): Promise<void>;
 }
 
 /**
@@ -61,6 +80,11 @@ Options:
   --lsh-base-path <topic>     LSH topic base path. Default: LSH/
   --service-topic <topic>     Bridge service topic. Default: LSH/Node-RED/SRV
   --protocol <type>           Payload protocol: json or msgpack. Default: json
+  --qos-conf <0|1|2>          Subscription QoS for LSH conf topics. Default: 2
+  --qos-state <0|1|2>         Subscription QoS for LSH state topics. Default: 2
+  --qos-events <0|1|2>        Subscription QoS for LSH events topics. Default: 2
+  --qos-bridge <0|1|2>        Subscription QoS for LSH bridge topics. Default: 2
+  --qos-homie-state <0|1|2>   Subscription QoS for Homie $state topics. Default: 1
   --other-devices-prefix <p>  Prefix for external actor state lookups. Default: other_devices
   --click-timeout <seconds>   Network click confirm timeout. Default: 2
   --click-cleanup <seconds>   Pending click cleanup interval. Default: 30
@@ -80,6 +104,9 @@ Options:
   --key-passphrase <value>    TLS client private key passphrase.
   --reject-unauthorized <bool> Verify broker TLS certificate. Default: true
   --log-level <level>         silent, error, warn, info, debug. Default: info
+  --validate-config           Validate config and exit without connecting to MQTT.
+  --print-effective-config    Print normalized coordinator config and exit.
+  --explain-subscriptions     Print generated subscriptions and exit.
   --help                      Show this help.
 `;
 
@@ -144,6 +171,26 @@ const parseProtocol = (value: string | undefined, source: string): "json" | "msg
     return value;
   }
   throw new Error(`${source} must be json or msgpack.`);
+};
+
+/**
+ * Parses an MQTT QoS option.
+ */
+const parseMqttQos = (
+  value: string | undefined,
+  source: string,
+  defaultValue: MqttQoS,
+): MqttQoS => {
+  if (value === undefined) {
+    return defaultValue;
+  }
+
+  const parsed = Number(value);
+  if (parsed === 0 || parsed === 1 || parsed === 2) {
+    return parsed;
+  }
+
+  throw new Error(`${source} must be 0, 1 or 2.`);
 };
 
 /**
@@ -229,6 +276,33 @@ export const parseCliArgs = (args: string[], env: NodeJS.ProcessEnv = process.en
     lshBasePath: env.LSH_COORDINATOR_LSH_BASE_PATH ?? "LSH/",
     serviceTopic: env.LSH_COORDINATOR_SERVICE_TOPIC ?? "LSH/Node-RED/SRV",
     protocol: parseProtocol(env.LSH_COORDINATOR_PROTOCOL, "LSH_COORDINATOR_PROTOCOL"),
+    subscriptionQos: {
+      conf: parseMqttQos(
+        env.LSH_COORDINATOR_QOS_CONF,
+        "LSH_COORDINATOR_QOS_CONF",
+        DEFAULT_COORDINATOR_SUBSCRIPTION_QOS.conf,
+      ),
+      state: parseMqttQos(
+        env.LSH_COORDINATOR_QOS_STATE,
+        "LSH_COORDINATOR_QOS_STATE",
+        DEFAULT_COORDINATOR_SUBSCRIPTION_QOS.state,
+      ),
+      events: parseMqttQos(
+        env.LSH_COORDINATOR_QOS_EVENTS,
+        "LSH_COORDINATOR_QOS_EVENTS",
+        DEFAULT_COORDINATOR_SUBSCRIPTION_QOS.events,
+      ),
+      bridge: parseMqttQos(
+        env.LSH_COORDINATOR_QOS_BRIDGE,
+        "LSH_COORDINATOR_QOS_BRIDGE",
+        DEFAULT_COORDINATOR_SUBSCRIPTION_QOS.bridge,
+      ),
+      homieState: parseMqttQos(
+        env.LSH_COORDINATOR_QOS_HOMIE_STATE,
+        "LSH_COORDINATOR_QOS_HOMIE_STATE",
+        DEFAULT_COORDINATOR_SUBSCRIPTION_QOS.homieState,
+      ),
+    },
     otherDevicesPrefix: env.LSH_COORDINATOR_OTHER_DEVICES_PREFIX ?? "other_devices",
     clickTimeout: parsePositiveNumber(env.LSH_COORDINATOR_CLICK_TIMEOUT, "click timeout", 2),
     clickCleanupInterval: parsePositiveNumber(
@@ -267,6 +341,9 @@ export const parseCliArgs = (args: string[], env: NodeJS.ProcessEnv = process.en
     keyPassphrase: env.LSH_COORDINATOR_MQTT_KEY_PASSPHRASE,
     rejectUnauthorized: parseBooleanEnv(env.LSH_COORDINATOR_MQTT_REJECT_UNAUTHORIZED, true),
     logLevel: parseLogLevel(env.LSH_COORDINATOR_LOG_LEVEL, "LSH_COORDINATOR_LOG_LEVEL"),
+    validateConfig: false,
+    printEffectiveConfig: false,
+    explainSubscriptions: false,
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -298,6 +375,26 @@ export const parseCliArgs = (args: string[], env: NodeJS.ProcessEnv = process.en
         break;
       case "--protocol":
         options.protocol = parseProtocol(takeValue(args, index, arg), arg);
+        index += 1;
+        break;
+      case "--qos-conf":
+        options.subscriptionQos.conf = parseMqttQos(takeValue(args, index, arg), arg, 2);
+        index += 1;
+        break;
+      case "--qos-state":
+        options.subscriptionQos.state = parseMqttQos(takeValue(args, index, arg), arg, 2);
+        index += 1;
+        break;
+      case "--qos-events":
+        options.subscriptionQos.events = parseMqttQos(takeValue(args, index, arg), arg, 2);
+        index += 1;
+        break;
+      case "--qos-bridge":
+        options.subscriptionQos.bridge = parseMqttQos(takeValue(args, index, arg), arg, 2);
+        index += 1;
+        break;
+      case "--qos-homie-state":
+        options.subscriptionQos.homieState = parseMqttQos(takeValue(args, index, arg), arg, 1);
         index += 1;
         break;
       case "--other-devices-prefix":
@@ -376,6 +473,15 @@ export const parseCliArgs = (args: string[], env: NodeJS.ProcessEnv = process.en
         options.logLevel = parseLogLevel(takeValue(args, index, arg), arg);
         index += 1;
         break;
+      case "--validate-config":
+        options.validateConfig = true;
+        break;
+      case "--print-effective-config":
+        options.printEffectiveConfig = true;
+        break;
+      case "--explain-subscriptions":
+        options.explainSubscriptions = true;
+        break;
       default:
         throw new Error(`Unknown argument '${arg}'.`);
     }
@@ -397,6 +503,63 @@ export const parseCliArgs = (args: string[], env: NodeJS.ProcessEnv = process.en
  */
 export const loadSystemConfig = async (configPath: string): Promise<SystemConfig> => {
   return JSON.parse(await readFile(configPath, "utf8")) as SystemConfig;
+};
+
+/**
+ * Validates a parsed system configuration and throws a concise CLI error.
+ */
+export const validateSystemConfigOrThrow = (systemConfig: SystemConfig): void => {
+  const validators = createAppValidators();
+  if (validators.validateSystemConfig(systemConfig)) {
+    return;
+  }
+
+  const errorText =
+    validators.validateSystemConfig.errors?.map((error) => error.message).join(", ") ??
+    "unknown validation error";
+  throw new Error(`Invalid coordinator config: ${errorText}`);
+};
+
+/**
+ * Builds the JSON inspection report emitted by dry-run CLI modes.
+ */
+export const buildCliInspectionReport = (
+  options: CliOptions,
+  systemConfig: SystemConfig,
+): CliInspectionReport => {
+  validateSystemConfigOrThrow(systemConfig);
+  const coordinatorOptions = normalizeCoordinatorOptions(options);
+  const report: CliInspectionReport = { valid: true };
+
+  if (options.printEffectiveConfig) {
+    report.effectiveConfig = {
+      coordinatorOptions,
+      systemConfig,
+    };
+  }
+
+  if (options.explainSubscriptions) {
+    report.subscriptions = explainCoordinatorMqttSubscriptions(coordinatorOptions, systemConfig);
+  }
+
+  return report;
+};
+
+const isInspectionMode = (options: CliOptions): boolean =>
+  options.validateConfig || options.printEffectiveConfig || options.explainSubscriptions;
+
+/**
+ * Reloads the standalone runtime config from disk without reconnecting MQTT.
+ */
+export const reloadCoordinatorConfig = async (
+  coordinator: ReloadableCoordinator,
+  options: Pick<CliOptions, "configPath">,
+  logger: CoordinatorLogger = {},
+): Promise<void> => {
+  const systemConfig = await loadSystemConfig(options.configPath);
+  validateSystemConfigOrThrow(systemConfig);
+  await coordinator.reloadSystemConfig(systemConfig);
+  logger.info?.(`Reloaded coordinator config from ${options.configPath}.`);
 };
 
 /**
@@ -433,11 +596,21 @@ export const loadMqttOptions = async (options: CliOptions): Promise<IClientOptio
 /* istanbul ignore next -- Process signal wiring is covered by package smoke tests. */
 export const main = async (): Promise<void> => {
   const options = parseCliArgs(process.argv.slice(2));
+  const systemConfig = await loadSystemConfig(options.configPath);
+  const logger = createLogger(options.logLevel);
+
+  if (isInspectionMode(options)) {
+    process.stdout.write(
+      `${JSON.stringify(buildCliInspectionReport(options, systemConfig), null, 2)}\n`,
+    );
+    return;
+  }
+
   const coordinator = new LaboSmartHomeCoordinatorMqtt({
     ...options,
-    systemConfig: await loadSystemConfig(options.configPath),
+    systemConfig,
     mqttOptions: await loadMqttOptions(options),
-    logger: createLogger(options.logLevel),
+    logger,
   });
 
   await coordinator.start();
@@ -452,6 +625,12 @@ export const main = async (): Promise<void> => {
   });
   process.on("SIGTERM", () => {
     void stop();
+  });
+  process.on("SIGHUP", () => {
+    void reloadCoordinatorConfig(coordinator, options, logger).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error?.(`Failed to reload coordinator config: ${message}`);
+    });
   });
 };
 

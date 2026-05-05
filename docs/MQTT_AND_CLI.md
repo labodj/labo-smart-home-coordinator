@@ -29,8 +29,10 @@ LSH_COORDINATOR_CONFIG=./system-config.json \
 npx labo-smart-home-coordinator
 ```
 
-The CLI reads the config file at startup. Restart the process after changing the
-file; library users can call `updateSystemConfig` for runtime updates.
+The CLI reads the config file at startup. Send `SIGHUP` to reload that file
+without reconnecting to MQTT; the runtime validates the new config before
+replacing the active one and reconciles the broker subscription set. Library
+users can call `updateSystemConfig` for runtime updates.
 
 ## MQTT Authentication
 
@@ -115,6 +117,17 @@ For every configured device, the runtime subscribes to:
 | `homie/5/<device>/$state` | `1` |
 
 The exact prefixes come from `--lsh-base-path` and `--homie-base-path`.
+The QoS values come from the coordinator subscription policy and can be
+overridden with `--qos-conf`, `--qos-state`, `--qos-events`, `--qos-bridge`,
+and `--qos-homie-state`.
+
+To inspect the generated exact topic set without connecting to MQTT:
+
+```bash
+npx labo-smart-home-coordinator \
+  --config ./system-config.json \
+  --explain-subscriptions
+```
 
 ## Topics Published by the CLI
 
@@ -142,45 +155,75 @@ Optional external outputs:
 
 If `--other-actors-topic` is omitted, external actor intents are logged at debug
 level and not published. If `--alerts-topic` is omitted, alerts are written to
-the logger.
+the logger. Bridge-local diagnostics received on device `bridge` topics are
+also emitted as structured alerts with `event_type: "bridge_diagnostic"` while
+remaining excluded from controller reachability and click logic.
+
+Messages that do not match the exact generated topic set are logged only for the
+first few occurrences per topic and then periodically. This keeps accidental
+wildcard subscriptions visible without letting one noisy broker topic dominate
+the standalone CLI logs.
 
 ## CLI Options
 
-| Option                    | Environment Variable                       |
-| ------------------------- | ------------------------------------------ |
-| `--broker`                | `LSH_COORDINATOR_MQTT_URL`                 |
-| `--config`                | `LSH_COORDINATOR_CONFIG`                   |
-| `--homie-base-path`       | `LSH_COORDINATOR_HOMIE_BASE_PATH`          |
-| `--lsh-base-path`         | `LSH_COORDINATOR_LSH_BASE_PATH`            |
-| `--service-topic`         | `LSH_COORDINATOR_SERVICE_TOPIC`            |
-| `--protocol`              | `LSH_COORDINATOR_PROTOCOL`                 |
-| `--other-devices-prefix`  | `LSH_COORDINATOR_OTHER_DEVICES_PREFIX`     |
-| `--click-timeout`         | `LSH_COORDINATOR_CLICK_TIMEOUT`            |
-| `--click-cleanup`         | `LSH_COORDINATOR_CLICK_CLEANUP_INTERVAL`   |
-| `--watchdog-interval`     | `LSH_COORDINATOR_WATCHDOG_INTERVAL`        |
-| `--ping-threshold`        | `LSH_COORDINATOR_INTERROGATE_THRESHOLD`    |
-| `--ping-timeout`          | `LSH_COORDINATOR_PING_TIMEOUT`             |
-| `--initial-state-timeout` | `LSH_COORDINATOR_INITIAL_STATE_TIMEOUT`    |
-| `--other-actors-topic`    | `LSH_COORDINATOR_OTHER_ACTORS_TOPIC`       |
-| `--alerts-topic`          | `LSH_COORDINATOR_ALERTS_TOPIC`             |
-| `--mqtt-version`          | `LSH_COORDINATOR_MQTT_VERSION`             |
-| `--client-id`             | `LSH_COORDINATOR_CLIENT_ID`                |
-| `--username`              | `LSH_COORDINATOR_USERNAME`                 |
-| `--password`              | `LSH_COORDINATOR_PASSWORD`                 |
-| `--ca`                    | `LSH_COORDINATOR_MQTT_CA`                  |
-| `--cert`                  | `LSH_COORDINATOR_MQTT_CERT`                |
-| `--key`                   | `LSH_COORDINATOR_MQTT_KEY`                 |
-| `--key-passphrase`        | `LSH_COORDINATOR_MQTT_KEY_PASSPHRASE`      |
-| `--reject-unauthorized`   | `LSH_COORDINATOR_MQTT_REJECT_UNAUTHORIZED` |
-| `--log-level`             | `LSH_COORDINATOR_LOG_LEVEL`                |
+| Option                     | Environment Variable                       |
+| -------------------------- | ------------------------------------------ |
+| `--broker`                 | `LSH_COORDINATOR_MQTT_URL`                 |
+| `--config`                 | `LSH_COORDINATOR_CONFIG`                   |
+| `--homie-base-path`        | `LSH_COORDINATOR_HOMIE_BASE_PATH`          |
+| `--lsh-base-path`          | `LSH_COORDINATOR_LSH_BASE_PATH`            |
+| `--service-topic`          | `LSH_COORDINATOR_SERVICE_TOPIC`            |
+| `--protocol`               | `LSH_COORDINATOR_PROTOCOL`                 |
+| `--qos-conf`               | `LSH_COORDINATOR_QOS_CONF`                 |
+| `--qos-state`              | `LSH_COORDINATOR_QOS_STATE`                |
+| `--qos-events`             | `LSH_COORDINATOR_QOS_EVENTS`               |
+| `--qos-bridge`             | `LSH_COORDINATOR_QOS_BRIDGE`               |
+| `--qos-homie-state`        | `LSH_COORDINATOR_QOS_HOMIE_STATE`          |
+| `--other-devices-prefix`   | `LSH_COORDINATOR_OTHER_DEVICES_PREFIX`     |
+| `--click-timeout`          | `LSH_COORDINATOR_CLICK_TIMEOUT`            |
+| `--click-cleanup`          | `LSH_COORDINATOR_CLICK_CLEANUP_INTERVAL`   |
+| `--watchdog-interval`      | `LSH_COORDINATOR_WATCHDOG_INTERVAL`        |
+| `--ping-threshold`         | `LSH_COORDINATOR_INTERROGATE_THRESHOLD`    |
+| `--ping-timeout`           | `LSH_COORDINATOR_PING_TIMEOUT`             |
+| `--initial-state-timeout`  | `LSH_COORDINATOR_INITIAL_STATE_TIMEOUT`    |
+| `--other-actors-topic`     | `LSH_COORDINATOR_OTHER_ACTORS_TOPIC`       |
+| `--alerts-topic`           | `LSH_COORDINATOR_ALERTS_TOPIC`             |
+| `--mqtt-version`           | `LSH_COORDINATOR_MQTT_VERSION`             |
+| `--client-id`              | `LSH_COORDINATOR_CLIENT_ID`                |
+| `--username`               | `LSH_COORDINATOR_USERNAME`                 |
+| `--password`               | `LSH_COORDINATOR_PASSWORD`                 |
+| `--ca`                     | `LSH_COORDINATOR_MQTT_CA`                  |
+| `--cert`                   | `LSH_COORDINATOR_MQTT_CERT`                |
+| `--key`                    | `LSH_COORDINATOR_MQTT_KEY`                 |
+| `--key-passphrase`         | `LSH_COORDINATOR_MQTT_KEY_PASSPHRASE`      |
+| `--reject-unauthorized`    | `LSH_COORDINATOR_MQTT_REJECT_UNAUTHORIZED` |
+| `--log-level`              | `LSH_COORDINATOR_LOG_LEVEL`                |
+| `--validate-config`        |                                            |
+| `--print-effective-config` |                                            |
+| `--explain-subscriptions`  |                                            |
 
 `LSH_COORDINATOR_MQTT_CA` accepts multiple files separated by the platform path
 delimiter, for example `:` on Linux and macOS or `;` on Windows.
+
+The dry-run flags validate the system config before producing JSON and exit
+without opening an MQTT connection. `--print-effective-config` prints the
+normalized coordinator options, including the subscription QoS policy; combine it
+with `--explain-subscriptions` when comparing generated TOML stack exports
+against a running coordinator command.
 
 ## Operational Notes
 
 Run one coordinator instance for the same LSH fleet. Multiple active instances
 would all answer the same click events and publish duplicate commands.
+
+When running as a service, use `SIGHUP` after replacing the JSON config file:
+
+```bash
+kill -HUP <coordinator-pid>
+```
+
+If the new file is invalid, the process logs the reload error and keeps the
+previous active config.
 
 Use retained LSH `conf` and `state` messages. The coordinator can reuse retained
 snapshots at startup while still requiring live reachability evidence before it

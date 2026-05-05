@@ -13,24 +13,33 @@ export {
   type LaboSmartHomeCoordinatorRuntimeOptions,
   type OtherActorStateReader,
 } from "./LaboSmartHomeCoordinator";
-export { DEFAULT_COORDINATOR_OPTIONS, normalizeCoordinatorOptions } from "./config";
+export {
+  DEFAULT_COORDINATOR_OPTIONS,
+  DEFAULT_COORDINATOR_SUBSCRIPTION_QOS,
+  normalizeCoordinatorOptions,
+  normalizeCoordinatorSubscriptionQos,
+  type CoordinatorOptionsInput,
+} from "./config";
 export { LshCodec } from "./LshCodec";
 export { LshLogicService } from "./LshLogicService";
 export {
   buildCoordinatorMqttSubscriptions,
   buildNodeRedSubscriptionMessages,
+  explainCoordinatorMqttSubscriptions,
+  type CoordinatorSubscriptionExplanation,
   type CoordinatorSubscriptionMap,
-  type MqttQoS,
 } from "./subscriptions";
 export {
   type Actor,
   type AlertPayload,
   type ButtonAction,
   type CoordinatorOptions,
+  type CoordinatorSubscriptionQosPolicy,
   type DeviceDetailsPayload,
   type DeviceEntry,
   type DeviceRegistrySnapshot,
   type DeviceStateSnapshot,
+  type MqttQoS,
   type MqttMessage,
   type OtherActorsCommandPayload,
   type SystemConfig,

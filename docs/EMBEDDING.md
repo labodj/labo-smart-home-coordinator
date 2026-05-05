@@ -65,6 +65,25 @@ const subscriptions = coordinator.getSubscriptions();
 await mqttClient.subscribeAsync(subscriptions);
 ```
 
+Override subscription QoS through the same runtime options used by the CLI:
+
+```ts
+const coordinator = new LaboSmartHomeCoordinator({
+  systemConfig,
+  subscriptionQos: {
+    conf: 1,
+    state: 1,
+    events: 2,
+    bridge: 1,
+    homieState: 1,
+  },
+});
+```
+
+Use `explainCoordinatorMqttSubscriptions` when a wrapper needs a
+human-readable dry-run view of the exact topics, QoS values, and why each topic
+is subscribed.
+
 ## Payload Shapes
 
 The coordinator accepts the same payload shapes that common MQTT adapters

@@ -6,7 +6,11 @@
  * invalid topic bases from leaking into subscription generation or topic
  * parsing.
  */
-import type { CoordinatorOptions } from "./types";
+import type { CoordinatorOptions, CoordinatorSubscriptionQosPolicy, MqttQoS } from "./types";
+
+export type CoordinatorOptionsInput = Omit<Partial<CoordinatorOptions>, "subscriptionQos"> & {
+  subscriptionQos?: Partial<CoordinatorSubscriptionQosPolicy>;
+};
 
 /**
  * Numeric option keys that share positive-number validation.
@@ -19,7 +23,20 @@ type NumericConfigKey =
   | "pingTimeout"
   | "initialStateTimeout";
 
+type SubscriptionQosKey = keyof CoordinatorSubscriptionQosPolicy;
+
 const MQTT_WILDCARD_PATTERN = /[+#]/;
+
+/**
+ * Defaults matching the public LSH MQTT subscription profile.
+ */
+export const DEFAULT_COORDINATOR_SUBSCRIPTION_QOS: CoordinatorSubscriptionQosPolicy = {
+  conf: 2,
+  state: 2,
+  events: 2,
+  bridge: 2,
+  homieState: 1,
+};
 
 /**
  * Conservative defaults matching the public LSH MQTT profile.
@@ -29,6 +46,7 @@ export const DEFAULT_COORDINATOR_OPTIONS: CoordinatorOptions = {
   lshBasePath: "LSH/",
   serviceTopic: "LSH/Node-RED/SRV",
   protocol: "json",
+  subscriptionQos: { ...DEFAULT_COORDINATOR_SUBSCRIPTION_QOS },
   otherDevicesPrefix: "other_devices",
   clickTimeout: 2,
   clickCleanupInterval: 30,
@@ -109,6 +127,58 @@ const normalizePositiveNumber = (value: number, fieldName: string): number => {
 };
 
 /**
+ * Normalizes one MQTT QoS value.
+ */
+const normalizeMqttQos = (value: unknown, fieldName: string): MqttQoS => {
+  if (value === 0 || value === 1 || value === 2) {
+    return value;
+  }
+
+  throw new Error(`${fieldName} must be 0, 1 or 2.`);
+};
+
+/**
+ * Normalizes the coordinator subscription QoS policy.
+ */
+export const normalizeCoordinatorSubscriptionQos = (
+  policy: Partial<CoordinatorSubscriptionQosPolicy> = {},
+): CoordinatorSubscriptionQosPolicy => {
+  const labels: Record<SubscriptionQosKey, string> = {
+    conf: "Configuration Subscription QoS",
+    state: "State Subscription QoS",
+    events: "Events Subscription QoS",
+    bridge: "Bridge Subscription QoS",
+    homieState: "Homie State Subscription QoS",
+  };
+
+  for (const key of Object.keys(policy)) {
+    if (!(key in labels)) {
+      throw new Error(`Unknown subscription QoS policy key '${key}'.`);
+    }
+  }
+
+  return {
+    conf: normalizeMqttQos(policy.conf ?? DEFAULT_COORDINATOR_SUBSCRIPTION_QOS.conf, labels.conf),
+    state: normalizeMqttQos(
+      policy.state ?? DEFAULT_COORDINATOR_SUBSCRIPTION_QOS.state,
+      labels.state,
+    ),
+    events: normalizeMqttQos(
+      policy.events ?? DEFAULT_COORDINATOR_SUBSCRIPTION_QOS.events,
+      labels.events,
+    ),
+    bridge: normalizeMqttQos(
+      policy.bridge ?? DEFAULT_COORDINATOR_SUBSCRIPTION_QOS.bridge,
+      labels.bridge,
+    ),
+    homieState: normalizeMqttQos(
+      policy.homieState ?? DEFAULT_COORDINATOR_SUBSCRIPTION_QOS.homieState,
+      labels.homieState,
+    ),
+  };
+};
+
+/**
  * Normalizes and validates static coordinator options.
  *
  * The coordinator deliberately rejects wildcard topic configuration at this
@@ -116,14 +186,29 @@ const normalizePositiveNumber = (value: number, fieldName: string): number => {
  * would make recovery and topic parsing ambiguous.
  */
 export const normalizeCoordinatorOptions = (
-  options: Partial<CoordinatorOptions> = {},
+  options: CoordinatorOptionsInput = {},
 ): CoordinatorOptions => {
+  const { subscriptionQos } = options;
   const merged: CoordinatorOptions = {
-    ...DEFAULT_COORDINATOR_OPTIONS,
-    ...options,
+    homieBasePath: options.homieBasePath ?? DEFAULT_COORDINATOR_OPTIONS.homieBasePath,
+    lshBasePath: options.lshBasePath ?? DEFAULT_COORDINATOR_OPTIONS.lshBasePath,
+    serviceTopic: options.serviceTopic ?? DEFAULT_COORDINATOR_OPTIONS.serviceTopic,
+    protocol: options.protocol ?? DEFAULT_COORDINATOR_OPTIONS.protocol,
+    subscriptionQos: normalizeCoordinatorSubscriptionQos(subscriptionQos),
+    otherDevicesPrefix:
+      options.otherDevicesPrefix ?? DEFAULT_COORDINATOR_OPTIONS.otherDevicesPrefix,
+    clickTimeout: options.clickTimeout ?? DEFAULT_COORDINATOR_OPTIONS.clickTimeout,
+    clickCleanupInterval:
+      options.clickCleanupInterval ?? DEFAULT_COORDINATOR_OPTIONS.clickCleanupInterval,
+    watchdogInterval: options.watchdogInterval ?? DEFAULT_COORDINATOR_OPTIONS.watchdogInterval,
+    interrogateThreshold:
+      options.interrogateThreshold ?? DEFAULT_COORDINATOR_OPTIONS.interrogateThreshold,
+    pingTimeout: options.pingTimeout ?? DEFAULT_COORDINATOR_OPTIONS.pingTimeout,
+    initialStateTimeout:
+      options.initialStateTimeout ?? DEFAULT_COORDINATOR_OPTIONS.initialStateTimeout,
   };
 
-  const normalizedConfig = {
+  const normalizedConfig: CoordinatorOptions = {
     ...merged,
     homieBasePath: validateTopicBase(merged.homieBasePath, "Homie Base Path"),
     lshBasePath: validateTopicBase(merged.lshBasePath, "LSH Base Path"),

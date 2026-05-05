@@ -16,6 +16,7 @@ const createMockClient = () => {
       return client;
     }),
     subscribeAsync: jest.fn().mockResolvedValue(undefined),
+    unsubscribeAsync: jest.fn().mockResolvedValue(undefined),
     publishAsync: jest.fn().mockResolvedValue(undefined),
     endAsync: jest.fn().mockResolvedValue(undefined),
   };
@@ -247,6 +248,57 @@ describe("LaboSmartHomeCoordinatorMqtt", () => {
 
     expect(factory).toHaveBeenCalledTimes(1);
     expect(client.endAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it("reloads runtime config and reconciles broker subscriptions", async () => {
+    const { client } = createMockClient();
+    const runtime = new LaboSmartHomeCoordinatorMqtt({
+      brokerUrl: "mqtt://broker.local:1883",
+      systemConfig,
+      clientFactory: jest.fn().mockResolvedValue(client),
+    });
+
+    await runtime.start();
+    await runtime.reloadSystemConfig({ devices: [{ name: "target" }] });
+
+    expect(client.subscribeAsync).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        "LSH/target/conf": { qos: 2 },
+        "homie/5/target/$state": { qos: 1 },
+      }),
+    );
+    expect(client.unsubscribeAsync).toHaveBeenCalledWith([
+      "LSH/source/bridge",
+      "LSH/source/conf",
+      "LSH/source/events",
+      "LSH/source/state",
+      "homie/5/source/$state",
+    ]);
+    expect(runtime.getCoordinator().getSystemConfig()).toEqual({
+      devices: [{ name: "target" }],
+    });
+
+    await runtime.stop();
+  });
+
+  it("rejects invalid reload config before changing broker subscriptions", async () => {
+    const { client } = createMockClient();
+    const runtime = new LaboSmartHomeCoordinatorMqtt({
+      brokerUrl: "mqtt://broker.local:1883",
+      systemConfig,
+      clientFactory: jest.fn().mockResolvedValue(client),
+    });
+
+    await runtime.start();
+    await expect(runtime.reloadSystemConfig({ devices: [{ name: "bad/name" }] })).rejects.toThrow(
+      "Invalid coordinator config",
+    );
+
+    expect(client.subscribeAsync).toHaveBeenCalledTimes(1);
+    expect(client.unsubscribeAsync).not.toHaveBeenCalled();
+    expect(runtime.getCoordinator().getSystemConfig()).toEqual(systemConfig);
+
+    await runtime.stop();
   });
 
   it("ignores outbound MQTT events that cannot be published", async () => {

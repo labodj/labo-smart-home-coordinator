@@ -41,6 +41,23 @@ export interface MqttMessage {
  */
 export type NodeMessage = MqttMessage;
 
+/** MQTT Quality of Service values accepted by MQTT.js and Node-RED mqtt-in. */
+export type MqttQoS = 0 | 1 | 2;
+
+/** QoS policy used for coordinator MQTT subscriptions. */
+export interface CoordinatorSubscriptionQosPolicy {
+  /** Subscription QoS for retained device configuration snapshots. */
+  conf: MqttQoS;
+  /** Subscription QoS for retained/live actuator state snapshots. */
+  state: MqttQoS;
+  /** Subscription QoS for controller-backed device events. */
+  events: MqttQoS;
+  /** Subscription QoS for bridge-local diagnostics and replies. */
+  bridge: MqttQoS;
+  /** Subscription QoS for Homie lifecycle state. */
+  homieState: MqttQoS;
+}
+
 /**
  * Defines the configuration options for the standalone coordinator runtime.
  */
@@ -53,6 +70,8 @@ export interface CoordinatorOptions {
   serviceTopic: string;
   /** The protocol to use for LSH command payloads. */
   protocol: "json" | "msgpack";
+  /** MQTT subscription QoS policy for generated exact topics. */
+  subscriptionQos: CoordinatorSubscriptionQosPolicy;
   /** Prefix for context keys when reading external device states. */
   otherDevicesPrefix: string;
   /** Seconds to wait for a network click confirmation before it expires. */
@@ -455,7 +474,7 @@ export interface PendingClickTransaction {
 export interface MqttSubscribeMsg {
   topic: string | string[];
   action: "subscribe";
-  qos: 0 | 1 | 2;
+  qos: MqttQoS;
 }
 
 export interface MqttUnsubscribeMsg {
@@ -474,6 +493,7 @@ export type AlertEventType =
   | "device_lifecycle_online"
   | "device_unreachable"
   | "device_recovered"
+  | "bridge_diagnostic"
   | "action_failed";
 
 /**
@@ -483,6 +503,7 @@ export type AlertEventSource =
   | "homie_lifecycle"
   | "watchdog"
   | "live_telemetry"
+  | "bridge_diagnostic"
   | "action_validation";
 
 /**

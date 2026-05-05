@@ -14,6 +14,8 @@ export {
 export {
   buildCoordinatorMqttSubscriptions,
   buildNodeRedSubscriptionMessages,
+  explainCoordinatorMqttSubscriptions,
+  type CoordinatorSubscriptionExplanation,
   type CoordinatorSubscriptionMap,
-  type MqttQoS,
 } from "./subscriptions";
+export { type MqttQoS } from "./types";
