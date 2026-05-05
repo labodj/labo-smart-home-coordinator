@@ -1,73 +1,77 @@
 # Documentation
 
-This package is the standalone LSH coordinator runtime. The README gives the
-shortest path for installing and running it; this page keeps the rest of the
-documentation easy to navigate.
+This repository is the shared LSH protocol contract. It is intentionally smaller
+than the product repositories: it defines the wire facts that every consumer
+needs to read the same way.
+
+Use this page as the documentation map. The README gives the overview; the
+generated reference gives exact values; the profiles guide explains how those
+values behave in real deployments.
 
 ## Start Here
 
-Read these in order if you are bringing up a new coordinator:
+Read these in order if you are new to the protocol:
 
-1. [README](README.md) for the package purpose, the CLI entry point, and the
-   library entry points.
-2. [Configuration](docs/CONFIGURATION.md) for the `systemConfig` shape and the
-   validation rules.
-3. [MQTT and CLI](docs/MQTT_AND_CLI.md) for broker settings, TLS, environment
-   variables, and published topics.
+1. [README](README.md) for the repository purpose, scope, compatibility model,
+   and maintainer workflow.
+2. [Profiles and roles](docs/profiles-and-roles.md) for peer responsibilities,
+   hop-local behavior, cache boundaries, and public LSH MQTT profile semantics.
+3. [Generated protocol reference](shared/lsh_protocol.md) when you need exact
+   command IDs, compact JSON keys, payload examples, or generated static bytes.
 
-That path is enough for a standalone service.
+That path gives you the context you need before touching a consumer repository.
 
 ## Common Tasks
 
-| Task                                        | Read this first                                                 |
-| ------------------------------------------- | --------------------------------------------------------------- |
-| Write the first `system-config.json` file   | [Configuration](docs/CONFIGURATION.md)                          |
-| Run the coordinator as a process            | [MQTT and CLI](docs/MQTT_AND_CLI.md)                            |
-| Use TLS, mutual TLS, or MQTT authentication | [MQTT and CLI](docs/MQTT_AND_CLI.md#tls-and-mutual-tls)         |
-| Embed the runtime in a Node.js service      | [Embedding](docs/EMBEDDING.md)                                  |
-| Route external actor intents                | [Configuration](docs/CONFIGURATION.md#other-actors)             |
-| Understand startup, watchdog, and recovery  | [Lifecycle contract](LIFECYCLE.md)                              |
-| Check the MQTT/protocol source of truth     | [Vendored protocol](vendor/lsh-protocol/shared/lsh_protocol.md) |
+- Check exact command IDs and wire keys:
+  [generated protocol reference](shared/lsh_protocol.md#commands).
+- Understand `BOOT`, `PING`, forwarding, and cache responsibility:
+  [profiles and roles](docs/profiles-and-roles.md#commands-that-need-care).
+- Update the shared contract:
+  [maintainer flow](README.md#maintainer-flow).
+- Vendor a released protocol copy into another project:
+  [consumer integration](README.md#consumer-integration).
+- Regenerate shared Markdown or consumer outputs:
+  [generator usage](README.md#generator-usage).
+- Understand the public LSH stack around this protocol:
+  [LSH reference stack](https://github.com/labodj/labo-smart-home/blob/main/REFERENCE_STACK.md).
 
-## Choose the Right Entry Point
+## Generated vs Hand-Written
 
-Use the CLI when you want one process dedicated to LSH coordination. It loads a
-JSON config file, connects to MQTT, subscribes to the generated topic set, and
-publishes outputs back to the broker.
+`shared/lsh_protocol.md` is generated from `shared/lsh_protocol.json` and
+`shared/lsh_protocol_golden_payloads.json`. Do not edit the generated Markdown
+directly. Change the source data or the generator, then run:
 
-Use `LaboSmartHomeCoordinatorMqtt` when your application is still happy to let
-this package own the broker connection, but you want to construct and manage it
-from code.
+```bash
+python3 tools/generate_lsh_protocol.py
+python3 tools/generate_lsh_protocol.py --check
+```
 
-Use `LaboSmartHomeCoordinator` when another runtime already owns transport. In
-that mode the coordinator receives messages, emits semantic events, and leaves
-publishing or routing to the host.
+`docs/profiles-and-roles.md` is hand-written. Use it for explanations that do
+not belong in the wire table: roles, authority, forwarding, caching, and profile
+semantics.
 
-Use
-[`node-red-contrib-lsh-logic`](https://github.com/labodj/node-red-contrib-lsh-logic)
-when Node-RED is the orchestration surface. That package wraps this runtime with
-editor fields, context access, dynamic subscription messages, and Node-RED
-outputs.
+## Project Scope
 
-## What Belongs Here
+This repo owns:
 
-This coordinator is about LSH runtime correctness: devices, distributed clicks,
-state freshness, recovery, watchdog behavior, alerts, and generic external actor
-intents.
+- wire command IDs
+- compact JSON keys
+- click type IDs
+- wire compatibility metadata
+- golden payload examples
+- generated protocol documentation
+- role-neutral guidance for implementers
 
-It does not describe Home Assistant entities, dashboards, UI names, or
-ecosystem-specific commands. Those details belong in the integration that
-receives the coordinator output. Keeping that split visible makes the config
-easier to review and safer to change.
+It does not own firmware policy, bridge policy, Node-RED behavior, Homie
+projection, Home Assistant discovery, or physical device configuration. Those
+decisions live in the repositories that implement the protocol.
 
-## Wider LSH Stack
+## Editing Rule of Thumb
 
-The project-level docs provide the full installation picture:
+If a change affects the payload shape or command meaning, treat it as a
+compatibility change and update consumers in a coordinated way.
 
-- [Reference stack](https://github.com/labodj/labo-smart-home/blob/main/REFERENCE_STACK.md)
-- [Getting started](https://github.com/labodj/labo-smart-home/blob/main/GETTING_STARTED.md)
-- [Glossary](https://github.com/labodj/labo-smart-home/blob/main/GLOSSARY.md)
-- [Troubleshooting](https://github.com/labodj/labo-smart-home/blob/main/TROUBLESHOOTING.md)
-
-Use those pages for architecture and operational context. Use this package
-documentation for the coordinator API, CLI, and runtime behavior.
+If a change only improves generated docs or generated code quality, keep the
+wire contract stable and prove that the generator still reproduces the expected
+files.

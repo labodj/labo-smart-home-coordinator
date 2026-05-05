@@ -1,189 +1,268 @@
-# Labo Smart Home Coordinator
+# LSH Protocol
 
-[![npm](https://img.shields.io/npm/v/labo-smart-home-coordinator.svg)](https://www.npmjs.com/package/labo-smart-home-coordinator)
-[![npm downloads](https://img.shields.io/npm/dm/labo-smart-home-coordinator.svg)](https://www.npmjs.com/package/labo-smart-home-coordinator)
-[![CI](https://github.com/labodj/labo-smart-home-coordinator/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/labodj/labo-smart-home-coordinator/actions/workflows/ci.yaml)
-[![Node.js](https://img.shields.io/node/v/labo-smart-home-coordinator.svg)](https://www.npmjs.com/package/labo-smart-home-coordinator)
-[![Latest Release](https://img.shields.io/github/v/release/labodj/labo-smart-home-coordinator?display_name=tag&sort=semver)](https://github.com/labodj/labo-smart-home-coordinator/releases/latest)
-[![License](https://img.shields.io/github/license/labodj/labo-smart-home-coordinator.svg)](https://github.com/labodj/labo-smart-home-coordinator/blob/main/LICENSE)
+[![Build Status](https://github.com/labodj/lsh-protocol/actions/workflows/ci.yml/badge.svg)](https://github.com/labodj/lsh-protocol/actions/workflows/ci.yml)
+[![Latest Release](https://img.shields.io/github/v/release/labodj/lsh-protocol?display_name=tag&sort=semver)](https://github.com/labodj/lsh-protocol/releases/latest)
+[![License](https://img.shields.io/github/license/labodj/lsh-protocol.svg)](https://github.com/labodj/lsh-protocol/blob/main/LICENSE)
 
-[![works with MQTT Homie](https://homieiot.github.io/img/works-with-homie.svg "works with MQTT Homie")](https://homieiot.github.io/)
+`lsh-protocol` is the shared contract that keeps the public LSH repositories
+aligned on the same wire format.
 
-`labo-smart-home-coordinator` is the standalone TypeScript runtime for the
-public LSH MQTT coordination contract. It listens to LSH device telemetry, keeps
-a live registry, validates distributed long-click actions, emits actuator
-commands, publishes alerts, and exposes generic intents for non-LSH devices.
+It does not contain firmware logic, Node-RED flows, automation rules, or device
+configuration. It contains the part that needs to stay identical everywhere: wire
+keys, command IDs, click IDs, golden payloads, compatibility metadata, and the
+generator that turns those definitions into code for the public LSH projects.
 
-In practical terms, it answers one careful question: a button was long-pressed,
-so what is safe to switch right now?
+The `main` branch can move ahead while coordinated work is in progress. If you
+are building outside the public LSH repositories, vendor a tagged release so the
+protocol copy in your project stays reproducible.
 
-## Why This Exists
+## Where This Fits
 
-LSH devices already publish their configuration, state, Homie lifecycle, and
-click events over MQTT. This package adds the small runtime that coordinates
-across devices and refuses actions when the required state is not reliable.
+The protocol is shared by these repositories:
 
-It keeps that responsibility focused:
+- `lsh-core`: the firmware-side controller implementation
+- `lsh-bridge`: the serial-to-MQTT bridge implementation
+- `labo-smart-home-coordinator`: the standalone automation coordinator
+- `node-red-contrib-lsh-logic`: the Node-RED package built around the coordinator
 
-- the config names the LSH devices and the click actions you want;
-- the coordinator checks whether target state is fresh enough to act;
-- LSH commands, alerts, and external actor intents stay separate;
-- Home Assistant discovery, dashboards, and ecosystem-specific commands remain
-  outside the core runtime.
+The current public stack is documented from the user-facing side here:
 
-You can run it as a CLI process, embed it in a Node.js service, or use it
-through the Node-RED wrapper package.
+- [LSH reference stack](https://github.com/labodj/labo-smart-home/blob/main/REFERENCE_STACK.md)
+- [LSH glossary](https://github.com/labodj/labo-smart-home/blob/main/GLOSSARY.md)
+- [LSH FAQ](https://github.com/labodj/labo-smart-home/blob/main/FAQ.md)
 
-## Install
-
-```bash
-npm install labo-smart-home-coordinator
-```
-
-Node.js 18 or newer is required.
-
-## Run It from the CLI
-
-The CLI owns the MQTT connection for you:
-
-```bash
-npx labo-smart-home-coordinator \
-  --broker mqtt://localhost:1883 \
-  --config ./system-config.json
-```
-
-With authentication and MQTT v5:
-
-```bash
-npx labo-smart-home-coordinator \
-  --broker mqtt://192.168.1.20:1883 \
-  --username homie \
-  --password homie \
-  --mqtt-version 5 \
-  --config ./system-config.json
-```
-
-TLS and mutual TLS are supported:
-
-```bash
-npx labo-smart-home-coordinator \
-  --broker mqtts://mqtt.example.net:8883 \
-  --ca ./certs/ca.pem \
-  --cert ./certs/client.crt \
-  --key ./certs/client.key \
-  --config ./system-config.json
-```
-
-## Use It as a Library
-
-Use the transport-agnostic runtime when your application already owns MQTT or
-wants to feed messages from another source:
-
-```ts
-import { LaboSmartHomeCoordinator } from "labo-smart-home-coordinator";
-
-const coordinator = new LaboSmartHomeCoordinator({
-  systemConfig,
-  homieBasePath: "homie/5/",
-  lshBasePath: "LSH/",
-});
-
-coordinator.on("mqtt", (message) => mqttClient.publish(message.topic!, message.payload));
-coordinator.on("alert", (alert) => console.warn(alert.message));
-coordinator.on("otherActors", (command) => routeExternalActors(command));
-
-await coordinator.start();
-await coordinator.processMqttMessage({
-  topic: "LSH/cucina/state",
-  payload: { p: 2, s: [1] },
-});
-```
-
-Use the MQTT adapter when you want the package to own the broker connection:
-
-```ts
-import { LaboSmartHomeCoordinatorMqtt } from "labo-smart-home-coordinator/mqtt";
-
-const runtime = new LaboSmartHomeCoordinatorMqtt({
-  brokerUrl: "mqtt://localhost:1883",
-  systemConfig,
-  otherActorsTopic: "home/other-actors/commands",
-  alertsTopic: "home/alerts",
-});
-
-await runtime.start();
-```
-
-## Minimal Config
-
-The config file lists the LSH devices the coordinator should know about and the
-button actions it should execute.
-
-```json
-{
-  "devices": [
-    {
-      "name": "ingresso",
-      "longClickButtons": [
-        {
-          "id": 1,
-          "actors": [
-            {
-              "name": "cucina",
-              "allActuators": true,
-              "actuators": []
-            }
-          ],
-          "otherActors": ["zigbee_table_lamp"]
-        }
-      ]
-    },
-    {
-      "name": "cucina"
-    }
-  ]
-}
-```
-
-That means: when device `ingresso` reports a long click on button `1`, toggle
-all actuators on device `cucina` and also emit an intent for
-`zigbee_table_lamp`.
-
-## Runtime Behavior
-
-The coordinator is conservative by design. It reuses retained `conf` and
-`state` snapshots, but it does not treat retained lifecycle traffic as proof
-that a device is alive right now. A distributed click is confirmed only when the
-target state is authoritative, and recovery probes are rate-limited so a broken
-device does not flood the broker.
-
-It subscribes to `conf`, `state`, `events`, `bridge`, and Homie `$state` topics
-for every configured device. It publishes LSH commands to device `IN` topics and
-bridge-wide probes to the configured service topic.
+This repository stays lower level. It explains the contract and gives maintainers
+one place to update it before regenerating the consumer-specific outputs.
 
 ## Documentation
 
-The full documentation map lives in
-[DOCS.md](https://github.com/labodj/labo-smart-home-coordinator/blob/main/DOCS.md).
-Start there for configuration, CLI options, embedding, MQTT behavior, and the
-lifecycle contract.
+The full documentation map lives in [DOCS.md](./DOCS.md). Start there when you
+need to choose between the generated wire reference, the hand-written roles
+guide, and the consumer integration flow.
 
-The Node-RED sibling is
-[`node-red-contrib-lsh-logic`](https://flows.nodered.org/node/node-red-contrib-lsh-logic).
-It wraps this runtime with Node-RED editor fields, context access, dynamic MQTT
-subscriptions, and physical outputs.
+For a practical reading path:
 
-## Maintainer Notes
+- read [profiles and roles](./docs/profiles-and-roles.md) before designing a
+  bridge, gateway, or coordinator;
+- keep [the generated reference](./shared/lsh_protocol.md) open when writing
+  encoders, decoders, tests, or generated constants;
+- use [the generated JSON Schema](./shared/lsh_protocol.schema.json) when
+  validating payload fixtures or external integrations;
+- use the
+  [LSH reference stack](https://github.com/labodj/labo-smart-home/blob/main/REFERENCE_STACK.md)
+  for the current public MQTT/Homie orchestration profile.
 
-The local quality gate runs type checking, linting, Markdown checks, formatting
-checks, package validation, coverage, and a production dependency audit:
+## Repository Contents
+
+- `shared/lsh_protocol.json`
+  The compact protocol specification. Edit this when the wire contract changes.
+- `shared/lsh_protocol_golden_payloads.json`
+  Human-readable golden examples used by tests, generated docs, and consumers.
+- `shared/lsh_protocol.md`
+  Generated reference documentation. Do not edit it by hand.
+- `shared/lsh_protocol.schema.json`
+  Generated JSON Schema for base protocol payload validation. Do not edit it by
+  hand.
+- `shared/lsh_protocol_manifest.json`
+  Generated drift manifest containing input, shared artifact, and expected
+  consumer artifact SHA-256 hashes. Do not edit it by hand.
+- `DOCS.md`
+  The documentation map for this repository.
+- `docs/profiles-and-roles.md`
+  Hand-written guidance for implementers. This is where the protocol semantics
+  are explained in normal language.
+- `tools/generate_lsh_protocol.py`
+  The generator used by this repository and by vendored consumer copies.
+
+## Scope
+
+This repo owns:
+
+- wire command IDs
+- compact JSON keys
+- click type IDs
+- protocol compatibility metadata
+- golden payload examples
+- generated protocol documentation
+- role-neutral guidance for implementers
+
+This repo does not own:
+
+- firmware behavior
+- bridge policy
+- Node-RED business logic
+- Homie projection or Home Assistant discovery
+- physical device configuration
+
+That separation matters. A protocol repository should be predictable, stable, and
+easy to audit. Runtime behavior belongs in the repositories that implement the
+protocol.
+
+## Compatibility Model
+
+The compatibility agreement is intentionally simple.
+
+`BOOT` is a re-sync signal. It does not negotiate protocol versions. Runtime
+compatibility is checked later, when a peer receives `DEVICE_DETAILS`.
+
+`DEVICE_DETAILS.v` carries the wire protocol major. If it matches the locally
+compiled `wireProtocolMajor`, the peers may continue the handshake. If it does
+not match, the payload must be rejected.
+
+Keep these two values separate:
+
+- `wireProtocolMajor` decides runtime wire compatibility.
+- `specRevision` tracks the source-of-truth revision used to generate docs and
+  code.
+
+`specRevision` is useful for humans, CI, and vendoring checks. It is not a wire
+negotiation mechanism.
+
+## Transport Model
+
+LSH logical payloads are transport-agnostic. The same command can travel over
+serial, MQTT, or another profile-defined transport as long as the payload shape
+stays valid.
+
+The current shared transport rules are:
+
+- JSON over serial: newline-delimited JSON
+- MsgPack over serial: `END + escaped(payload) + END`, with `END = 0xC0`,
+  `ESC = 0xDB`, `ESC_END = 0xDC`, and `ESC_ESC = 0xDD`
+- MQTT JSON: raw JSON payload
+- MQTT MsgPack: raw MsgPack payload
+
+The base protocol does not decide how many hops a deployment has, whether a
+bridge exists, whether commands are forwarded, how state is projected into
+Homie, or how Home Assistant discovery is handled. Those are profile decisions.
+
+## Trusted Environment
+
+The LSH payload format assumes a trusted environment and a cooperative broker.
+It does not provide authentication, encryption, replay protection, or integrity
+checks inside the payload itself.
+
+Use the security mechanisms of the transport and deployment: MQTT users and ACLs,
+TLS, network isolation, serial trust boundaries, and operating-system controls.
+
+## Consumer Integration
+
+Each consumer repository vendors this repo at `vendor/lsh-protocol` through
+`git subtree`.
+
+For stable external integrations, vendor a released tag:
 
 ```bash
-npm ci
-npm run check
+git remote add lsh-protocol git@github.com:labodj/lsh-protocol.git || git remote set-url lsh-protocol git@github.com:labodj/lsh-protocol.git
+git fetch lsh-protocol
+git subtree add --prefix=vendor/lsh-protocol lsh-protocol <tag> --squash
 ```
 
-## License
+To update an existing vendored copy:
 
-Apache-2.0. See
-[LICENSE](https://github.com/labodj/labo-smart-home-coordinator/blob/main/LICENSE).
+```bash
+git remote add lsh-protocol git@github.com:labodj/lsh-protocol.git || git remote set-url lsh-protocol git@github.com:labodj/lsh-protocol.git
+git fetch lsh-protocol
+git subtree pull --prefix=vendor/lsh-protocol lsh-protocol <tag> --squash
+```
+
+Use `main` only when you are intentionally coordinating unreleased protocol work
+across multiple LSH repositories:
+
+```bash
+git remote add lsh-protocol git@github.com:labodj/lsh-protocol.git || git remote set-url lsh-protocol git@github.com:labodj/lsh-protocol.git
+git fetch lsh-protocol
+git subtree pull --prefix=vendor/lsh-protocol lsh-protocol main --squash
+```
+
+After updating the vendored copy, regenerate or verify the target-specific files
+from the consumer repository:
+
+```bash
+python3 tools/update_lsh_protocol.py
+python3 tools/update_lsh_protocol.py --check
+```
+
+Consumer wrappers should default to the vendored subtree. Use `--protocol-root`
+or `LSH_PROTOCOL_ROOT` only when you explicitly want to test against a local
+protocol checkout.
+
+## Generator Usage
+
+Generate the shared Markdown reference in this repository:
+
+```bash
+python3 tools/generate_lsh_protocol.py
+```
+
+The default `shared-doc` target writes these generated files:
+
+- `shared/lsh_protocol.md`
+- `shared/lsh_protocol.schema.json`
+- `shared/lsh_protocol_manifest.json`
+
+Check that generated files are up to date:
+
+```bash
+python3 tools/generate_lsh_protocol.py --check
+```
+
+CI also checks generated protocol files in the public consumer repositories
+(`lsh-core`, `lsh-bridge`, and `labo-smart-home-coordinator`) and verifies their
+hashes against `shared/lsh_protocol_manifest.json`.
+
+Generate outputs for the public consumers:
+
+```bash
+python3 tools/generate_lsh_protocol.py \
+  --target shared-doc \
+  --target core \
+  --target bridge \
+  --target coordinator \
+  --target node-red \
+  --core-root /path/to/lsh-core \
+  --bridge-root /path/to/lsh-bridge \
+  --coordinator-root /path/to/labo-smart-home-coordinator \
+  --node-red-root /path/to/node-red-contrib-lsh-logic
+```
+
+Target meanings:
+
+- `shared-doc` writes the generated Markdown reference.
+- `core` writes C++ headers for `lsh-core`.
+- `bridge` writes C++ headers for `lsh-bridge`.
+- `coordinator` writes TypeScript protocol constants for the standalone
+  coordinator package.
+- `node-red` writes TypeScript protocol constants for packages that consume this
+  protocol directly from a Node-RED repository.
+
+The `node-red` target is retained for direct Node-RED package consumption. For
+new LSH automation work, the preferred direction is to keep protocol logic inside
+`labo-smart-home-coordinator` and let Node-RED wrap that library.
+
+## Maintainer Flow
+
+When the wire contract changes:
+
+1. Edit `shared/lsh_protocol.json`.
+2. Update `shared/lsh_protocol_golden_payloads.json` if examples changed.
+3. Run `python3 tools/generate_lsh_protocol.py`.
+4. Run `python3 tools/generate_lsh_protocol.py --check`.
+5. Confirm the manifest changed only because the spec, golden examples, shared
+   artifacts, or expected consumer artifacts changed.
+6. Propagate the vendored protocol copy into consumer repositories.
+7. Run each consumer's protocol update/check command.
+8. Commit the spec, generated docs, schema, manifest, and consumer-generated
+   outputs together in the appropriate repositories.
+
+## Versioning
+
+Use these concepts precisely:
+
+- `wireProtocolMajor`: runtime wire compatibility
+- `specRevision`: source-of-truth revision for generated code and documentation
+- git tags: released protocol milestones
+
+Small documentation or generator-quality changes do not necessarily imply a new
+wire protocol major. Any payload shape or command meaning change must be handled
+with the same care as a firmware/API compatibility change.

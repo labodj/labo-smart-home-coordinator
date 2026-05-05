@@ -1,7 +1,0 @@
-{
-  "$schema": "https://unpkg.com/knip@5/schema.json",
-  "entry": ["src/index.ts", "src/cli.ts", "src/mqtt.ts", "src/mqtt-adapter.ts"],
-  "project": ["src/**/*.ts"],
-  "ignoreDependencies": ["@msgpack/msgpack", "ajv", "mqtt"],
-  "ignore": ["dist/**", "src/generated/**"]
-}

@@ -1,7 +1,0 @@
-.cache
-coverage
-dist
-node_modules
-package-lock.json
-src/generated
-vendor/lsh-protocol
