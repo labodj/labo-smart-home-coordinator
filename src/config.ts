@@ -138,6 +138,17 @@ const normalizeMqttQos = (value: unknown, fieldName: string): MqttQoS => {
 };
 
 /**
+ * Normalizes the payload protocol selected for LSH MQTT topics.
+ */
+const normalizeProtocol = (value: unknown): CoordinatorOptions["protocol"] => {
+  if (value === "json" || value === "msgpack") {
+    return value;
+  }
+
+  throw new Error("Protocol must be json or msgpack.");
+};
+
+/**
  * Normalizes the coordinator subscription QoS policy.
  */
 export const normalizeCoordinatorSubscriptionQos = (
@@ -215,6 +226,7 @@ export const normalizeCoordinatorOptions = (
     serviceTopic: validateConcreteTopic(merged.serviceTopic, "Service Topic", {
       requireTrailingSlash: false,
     }),
+    protocol: normalizeProtocol(merged.protocol),
     otherDevicesPrefix: normalizeRequiredString(merged.otherDevicesPrefix, "External State Prefix"),
   };
 

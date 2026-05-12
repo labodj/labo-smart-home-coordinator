@@ -201,6 +201,43 @@ describe("LaboSmartHomeCoordinatorMqtt", () => {
     await runtime.stop();
   });
 
+  it("logs outbound publish failures without breaking the MQTT queue", async () => {
+    const { client } = createMockClient();
+    const logger = { error: jest.fn() };
+    client.publishAsync = jest
+      .fn()
+      .mockRejectedValueOnce(new Error("synthetic publish failure"))
+      .mockResolvedValue(undefined);
+    const runtime = new LaboSmartHomeCoordinatorMqtt({
+      brokerUrl: "mqtt://broker.local:1883",
+      systemConfig,
+      clientFactory: jest.fn().mockResolvedValue(client),
+      logger,
+    });
+
+    await runtime.start();
+    runtime.getCoordinator().emit("mqtt", {
+      topic: "LSH/source/IN",
+      payload: { p: 10 },
+    });
+    runtime.getCoordinator().emit("mqtt", {
+      topic: "LSH/source/IN",
+      payload: { p: 11 },
+    });
+    await runtime.flush();
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining("Failed to publish MQTT output: synthetic publish failure"),
+    );
+    expect(client.publishAsync).toHaveBeenCalledTimes(2);
+    expect(client.publishAsync).toHaveBeenLastCalledWith("LSH/source/IN", '{"p":11}', {
+      qos: 0,
+      retain: false,
+    });
+
+    await runtime.stop();
+  });
+
   it("publishes Buffer and string payloads without JSON stringifying them", async () => {
     const { client } = createMockClient();
     const runtime = new LaboSmartHomeCoordinatorMqtt({

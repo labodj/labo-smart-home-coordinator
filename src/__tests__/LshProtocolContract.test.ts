@@ -65,19 +65,26 @@ const CORE_STATIC_PAYLOADS_PATH = resolve(
   CORE_WORKSPACE_ROOT,
   "src/communication/constants/static_payloads.hpp",
 );
+const CORE_TRANSPORT_PATH = resolve(
+  CORE_WORKSPACE_ROOT,
+  "src/communication/constants/transport.hpp",
+);
 const BRIDGE_PROTOCOL_PATH = resolve(
   BRIDGE_WORKSPACE_ROOT,
   "src/constants/communication_protocol.hpp",
 );
 const BRIDGE_STATIC_PAYLOADS_PATH = resolve(BRIDGE_WORKSPACE_ROOT, "src/constants/payloads.hpp");
+const BRIDGE_TRANSPORT_PATH = resolve(BRIDGE_WORKSPACE_ROOT, "src/constants/transport.hpp");
 
 const hasCrossRepoWorkspace = [
   SPEC_PATH,
   GOLDEN_PATH,
   CORE_PROTOCOL_PATH,
   CORE_STATIC_PAYLOADS_PATH,
+  CORE_TRANSPORT_PATH,
   BRIDGE_PROTOCOL_PATH,
   BRIDGE_STATIC_PAYLOADS_PATH,
+  BRIDGE_TRANSPORT_PATH,
 ].every(existsSync);
 
 const describeContract = hasCrossRepoWorkspace ? describe : describe.skip;
@@ -132,6 +139,9 @@ const toMsgPackByteLiteral = (payload: number[]): string =>
   payload.map((byte) => `0x${byte.toString(16).toUpperCase().padStart(2, "0")}`).join(", ");
 
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const transportConstantPattern = (name: string, value: number): RegExp =>
+  new RegExp(`\\b${escapeRegExp(name)}\\s*=\\s*0x${value.toString(16).toUpperCase()}U\\b`);
 
 const tsCommandName = (command: ProtocolSpec["commands"][number]): string =>
   command.tsName ?? command.name;
@@ -264,6 +274,26 @@ describeContract("LSH protocol contract", () => {
         expect(header).not.toContain(`MSGPACK_RAW_${symbol}_BYTES`);
         expect(header).not.toContain(`MSGPACK_SERIAL_${symbol}_BYTES`);
       }
+    }
+  });
+
+  it("keeps generated transport headers aligned with MsgPack framing constants", () => {
+    const transportHeaders = [
+      readFileSync(CORE_TRANSPORT_PATH, "utf8"),
+      readFileSync(BRIDGE_TRANSPORT_PATH, "utf8"),
+    ];
+
+    for (const header of transportHeaders) {
+      expect(header).toMatch(transportConstantPattern("MSGPACK_FRAME_END", MSGPACK_FRAME_END));
+      expect(header).toMatch(
+        transportConstantPattern("MSGPACK_FRAME_ESCAPE", MSGPACK_FRAME_ESCAPE),
+      );
+      expect(header).toMatch(
+        transportConstantPattern("MSGPACK_FRAME_ESCAPED_END", MSGPACK_FRAME_ESCAPED_END),
+      );
+      expect(header).toMatch(
+        transportConstantPattern("MSGPACK_FRAME_ESCAPED_ESCAPE", MSGPACK_FRAME_ESCAPED_ESCAPE),
+      );
     }
   });
 });

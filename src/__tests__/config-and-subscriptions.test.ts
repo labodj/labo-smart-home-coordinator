@@ -62,6 +62,14 @@ describe("standalone coordinator configuration helpers", () => {
     );
   });
 
+  it("rejects invalid embedded protocol options", () => {
+    expect(() =>
+      normalizeCoordinatorOptions({
+        protocol: "xml" as "json",
+      }),
+    ).toThrow("Protocol must be json or msgpack");
+  });
+
   it("normalizes and validates subscription QoS policy overrides", () => {
     expect(
       normalizeCoordinatorOptions({

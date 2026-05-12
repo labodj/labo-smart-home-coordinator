@@ -230,6 +230,26 @@ export interface BridgeDiagnosticPayload {
   dropped_device_commands?: number;
   /** Optional count of dropped service-topic commands caused by queue overflow. */
   dropped_service_commands?: number;
+  /** Optional count of retained MQTT commands rejected by bridge policy. */
+  rejected_retained_commands?: number;
+  /** Optional count of oversize MQTT commands rejected before enqueue. */
+  rejected_oversize_commands?: number;
+  /** Optional count of fragmented MQTT commands rejected before enqueue. */
+  rejected_fragmented_commands?: number;
+  /** Optional count of malformed MQTT commands rejected during parse. */
+  rejected_malformed_commands?: number;
+  /** Optional count of controller-originated event commands rejected from MQTT. */
+  rejected_controller_event_commands?: number;
+  /** Optional count of unsupported MQTT commands that could not be forwarded safely. */
+  rejected_unsupported_forward_commands?: number;
+  /** Optional count of Homie writes rejected while runtime state was stale. */
+  rejected_homie_desync_commands?: number;
+  /** Optional count of Homie writes rejected for invalid payloads. */
+  rejected_homie_invalid_payload_commands?: number;
+  /** Optional count of Homie writes that could not be staged. */
+  rejected_homie_stage_failed_commands?: number;
+  /** Future bridge diagnostic counters are intentionally accepted without a release lock-step. */
+  [key: string]: unknown;
 }
 
 /**

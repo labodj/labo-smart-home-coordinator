@@ -3,6 +3,21 @@ import { ClickType, LSH_WIRE_PROTOCOL_MAJOR, LshProtocol } from "../types";
 
 describe("schemas", () => {
   const validators = createAppValidators();
+  const documentedBridgeDiagnosticCounters = [
+    "pending_ms",
+    "mutation_count",
+    "dropped_device_commands",
+    "dropped_service_commands",
+    "rejected_retained_commands",
+    "rejected_oversize_commands",
+    "rejected_fragmented_commands",
+    "rejected_malformed_commands",
+    "rejected_controller_event_commands",
+    "rejected_unsupported_forward_commands",
+    "rejected_homie_desync_commands",
+    "rejected_homie_invalid_payload_commands",
+    "rejected_homie_stage_failed_commands",
+  ] as const;
 
   it("rejects duplicate identifiers across config and details payloads", () => {
     const duplicateCases = [
@@ -159,10 +174,27 @@ describe("schemas", () => {
       event: "diagnostic",
       kind: "mqtt_queue_overflow",
       dropped_device_commands: 2,
+      blocked_inflight_dequeues: 3,
+      inflight_slots: 1,
+      rejected_controller_event_commands: 1,
+      rejected_unsupported_forward_commands: 1,
+      rejected_homie_desync_commands: 1,
       extra_future_field: true,
     });
 
     expect(isValid).toBe(true);
+  });
+
+  it("rejects negative values for documented bridge diagnostic counters", () => {
+    for (const counterName of documentedBridgeDiagnosticCounters) {
+      const isValid = validators.validateAnyBridgeTopic({
+        event: "diagnostic",
+        kind: "mqtt_queue_overflow",
+        [counterName]: -1,
+      });
+
+      expect(isValid).toBe(false);
+    }
   });
 
   it("accepts service ping replies on the bridge topic", () => {

@@ -419,6 +419,52 @@ const bridgeDiagnosticPayloadSchema = {
       minimum: 0,
       description: "Optional count of dropped service-topic commands.",
     },
+    rejected_retained_commands: {
+      type: "integer",
+      minimum: 0,
+      description: "Optional count of retained MQTT commands rejected by bridge policy.",
+    },
+    rejected_oversize_commands: {
+      type: "integer",
+      minimum: 0,
+      description: "Optional count of oversize MQTT commands rejected before enqueue.",
+    },
+    rejected_fragmented_commands: {
+      type: "integer",
+      minimum: 0,
+      description: "Optional count of fragmented MQTT commands rejected before enqueue.",
+    },
+    rejected_malformed_commands: {
+      type: "integer",
+      minimum: 0,
+      description: "Optional count of malformed MQTT commands rejected during parse.",
+    },
+    rejected_controller_event_commands: {
+      type: "integer",
+      minimum: 0,
+      description: "Optional count of controller-originated event commands rejected from MQTT.",
+    },
+    rejected_unsupported_forward_commands: {
+      type: "integer",
+      minimum: 0,
+      description:
+        "Optional count of unsupported MQTT commands that could not be forwarded safely.",
+    },
+    rejected_homie_desync_commands: {
+      type: "integer",
+      minimum: 0,
+      description: "Optional count of Homie writes rejected while runtime state was stale.",
+    },
+    rejected_homie_invalid_payload_commands: {
+      type: "integer",
+      minimum: 0,
+      description: "Optional count of Homie writes rejected for invalid payloads.",
+    },
+    rejected_homie_stage_failed_commands: {
+      type: "integer",
+      minimum: 0,
+      description: "Optional count of Homie writes that could not be staged.",
+    },
   },
   required: ["event", "kind"],
   additionalProperties: true,

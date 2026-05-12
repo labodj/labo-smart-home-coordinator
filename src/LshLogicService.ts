@@ -58,6 +58,16 @@ import type { ValidateFunction } from "ajv";
 const UNHANDLED_TOPIC_INITIAL_LOG_LIMIT = 3;
 const UNHANDLED_TOPIC_REMINDER_INTERVAL = 100;
 
+function hasZeroUnusedPackedTailBits(packedBytes: number[], numActuators: number): boolean {
+  const liveTailBits = numActuators & 0x07;
+  if (packedBytes.length === 0 || liveTailBits === 0) {
+    return true;
+  }
+  const allowedTailMask = (1 << liveTailBits) - 1;
+  const lastByte = packedBytes[packedBytes.length - 1] ?? 0;
+  return (lastByte & ~allowedTailMask) === 0;
+}
+
 /**
  * Custom error for handling click validation failures gracefully. This allows
  * the service to distinguish between different failure types and provide
@@ -1199,6 +1209,12 @@ export class LshLogicService {
       return result;
     }
     const detailsPayload = payload as DeviceDetailsPayload;
+    if (detailsPayload.n !== deviceName) {
+      result.warnings.push(
+        `Device details name mismatch for ${deviceName}: payload name is '${detailsPayload.n}'. Ignoring details payload.`,
+      );
+      return result;
+    }
     if (detailsPayload.v !== LSH_WIRE_PROTOCOL_MAJOR) {
       result.warnings.push(
         `Protocol major mismatch for ${deviceName}: received ${detailsPayload.v}, expected ${LSH_WIRE_PROTOCOL_MAJOR}. Ignoring details payload.`,
@@ -1250,6 +1266,12 @@ export class LshLogicService {
       if (packedBytes.length !== expectedBytes) {
         result.errors.push(
           `State mismatch for ${deviceName}: expected ${expectedBytes} bytes for ${numActuators} actuators, received ${packedBytes.length}.`,
+        );
+        return result;
+      }
+      if (!hasZeroUnusedPackedTailBits(packedBytes, numActuators)) {
+        result.errors.push(
+          `State mismatch for ${deviceName}: unused tail bits must be zero for ${numActuators} actuators.`,
         );
         return result;
       }

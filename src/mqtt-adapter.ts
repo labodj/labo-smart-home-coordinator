@@ -176,7 +176,7 @@ export class LaboSmartHomeCoordinatorMqtt {
 
   private wireCoordinatorOutputs(): void {
     this.coordinator.on("mqtt", (message) => {
-      this.messageQueue = this.messageQueue.then(() => this.publishMqttMessage(message));
+      this.enqueuePublish(() => this.publishMqttMessage(message));
     });
 
     this.coordinator.on("otherActors", (payload) => {
@@ -186,9 +186,7 @@ export class LaboSmartHomeCoordinatorMqtt {
         this.options.logger?.debug?.("Other actor command emitted without a configured topic.");
         return;
       }
-      this.messageQueue = this.messageQueue.then(() =>
-        this.publishJson(this.options.otherActorsTopic!, payload, 1),
-      );
+      this.enqueuePublish(() => this.publishJson(this.options.otherActorsTopic!, payload, 1));
     });
 
     this.coordinator.on("alert", (payload) => {
@@ -197,10 +195,22 @@ export class LaboSmartHomeCoordinatorMqtt {
         this.options.logger?.warn?.(payload.message);
         return;
       }
-      this.messageQueue = this.messageQueue.then(() =>
-        this.publishJson(this.options.alertsTopic!, payload, 1),
-      );
+      this.enqueuePublish(() => this.publishJson(this.options.alertsTopic!, payload, 1));
     });
+  }
+
+  private enqueuePublish(publish: () => Promise<void>): void {
+    const runPublish = async (): Promise<void> => {
+      try {
+        await publish();
+      } catch (error) {
+        this.options.logger?.error?.(
+          `Failed to publish MQTT output: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    };
+
+    this.messageQueue = this.messageQueue.then(runPublish, runPublish);
   }
 
   private async publishMqttMessage(message: MqttMessage): Promise<void> {

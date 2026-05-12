@@ -496,6 +496,17 @@ describe("LshLogicService - Core & Config", () => {
       expect(result.errors[0]).toContain("State mismatch for actor1: expected 1 bytes");
     });
 
+    it("should reject non-zero unused tail bits in packed actuator states", () => {
+      setDeviceOnline("actor1");
+
+      const result = sendLshState("actor1", [2]);
+
+      expect(result.errors).toEqual([
+        "State mismatch for actor1: unused tail bits must be zero for 1 actuators.",
+      ]);
+      expect(service.getDeviceRegistry().actor1.actuatorStates).toEqual([false]);
+    });
+
     it("should surface unexpected exceptions raised while handling state payloads", () => {
       const result = service.processMessage("LSH/actor1/state", {
         p: LshProtocol.ACTUATORS_STATE,
@@ -1005,6 +1016,22 @@ describe("LshLogicService - Core & Config", () => {
       expect(result.warnings).toContain(
         `Protocol major mismatch for actor1: received ${LSH_WIRE_PROTOCOL_MAJOR + 1}, expected ${LSH_WIRE_PROTOCOL_MAJOR}. Ignoring details payload.`,
       );
+      expect(service.getDeviceRegistry().actor1).toBeUndefined();
+    });
+
+    it("should ignore device details whose payload name does not match the topic device", () => {
+      const result = service.processMessage("LSH/actor1/conf", {
+        p: LshProtocol.DEVICE_DETAILS,
+        v: LSH_WIRE_PROTOCOL_MAJOR,
+        n: "actor2",
+        a: [1],
+        b: [],
+      });
+
+      expect(result.warnings).toContain(
+        "Device details name mismatch for actor1: payload name is 'actor2'. Ignoring details payload.",
+      );
+      expect(result.logs).toEqual([]);
       expect(service.getDeviceRegistry().actor1).toBeUndefined();
     });
 
