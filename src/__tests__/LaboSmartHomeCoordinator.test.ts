@@ -1,6 +1,20 @@
+import {
+  clearInterval as realClearInterval,
+  clearTimeout as realClearTimeout,
+  setInterval as realSetInterval,
+  setTimeout as realSetTimeout,
+} from "node:timers";
+
 import { LaboSmartHomeCoordinator } from "../LaboSmartHomeCoordinator";
 import { ClickType, LSH_WIRE_PROTOCOL_MAJOR, LshProtocol, Output } from "../types";
 import type { MqttMessage, ServiceResult, SystemConfig } from "../types";
+
+const restoreRealTimerGlobals = (): void => {
+  globalThis.setTimeout = realSetTimeout;
+  globalThis.clearTimeout = realClearTimeout;
+  globalThis.setInterval = realSetInterval;
+  globalThis.clearInterval = realClearInterval;
+};
 
 const systemConfig: SystemConfig = {
   devices: [
@@ -75,6 +89,11 @@ const sendDeviceOnline = async (
 };
 
 describe("LaboSmartHomeCoordinator", () => {
+  afterEach(() => {
+    jest.useRealTimers();
+    restoreRealTimerGlobals();
+  });
+
   it("starts, emits state/config events and exposes generated subscriptions", async () => {
     const coordinator = createCoordinator();
     const statuses: string[] = [];
@@ -458,7 +477,7 @@ describe("LaboSmartHomeCoordinator", () => {
 
   it("drops stale low-priority recovery messages after a runtime config change", async () => {
     jest.useFakeTimers();
-    jest.spyOn(Math, "random").mockReturnValue(1);
+    const randomSpy = jest.spyOn(Math, "random").mockReturnValue(1);
     const coordinator = createCoordinator(
       { devices: [{ name: "source" }, { name: "target" }] },
       {
@@ -497,15 +516,15 @@ describe("LaboSmartHomeCoordinator", () => {
         }),
       ]);
     } finally {
-      jest.restoreAllMocks();
       await coordinator.stop();
       jest.useRealTimers();
+      randomSpy.mockRestore();
     }
   });
 
   it("cancels pending low-priority recovery messages when stopping", async () => {
     jest.useFakeTimers();
-    jest.spyOn(Math, "random").mockReturnValue(1);
+    const randomSpy = jest.spyOn(Math, "random").mockReturnValue(1);
     const coordinator = createCoordinator(
       { devices: [{ name: "source" }, { name: "target" }] },
       {
@@ -544,9 +563,9 @@ describe("LaboSmartHomeCoordinator", () => {
         payload: { p: LshProtocol.PING },
       });
     } finally {
-      jest.restoreAllMocks();
       await coordinator.stop();
       jest.useRealTimers();
+      randomSpy.mockRestore();
     }
   });
 
@@ -576,9 +595,9 @@ describe("LaboSmartHomeCoordinator", () => {
 
       expect(watchdogSpy).toHaveBeenCalledTimes(2);
     } finally {
-      watchdogSpy.mockRestore();
       await coordinator.stop();
       jest.useRealTimers();
+      watchdogSpy.mockRestore();
     }
   });
 
@@ -689,7 +708,7 @@ describe("LaboSmartHomeCoordinator", () => {
 
   it("runs queued runtime recovery after startup verification completes", async () => {
     jest.useFakeTimers();
-    jest.spyOn(Math, "random").mockReturnValue(0);
+    const randomSpy = jest.spyOn(Math, "random").mockReturnValue(0);
     const coordinator = createCoordinator(
       { devices: [{ name: "source" }] },
       {
@@ -717,8 +736,8 @@ describe("LaboSmartHomeCoordinator", () => {
       const stopPromise = coordinator.stop();
       await jest.advanceTimersByTimeAsync(1000);
       await stopPromise;
-      jest.restoreAllMocks();
       jest.useRealTimers();
+      randomSpy.mockRestore();
     }
   });
 
