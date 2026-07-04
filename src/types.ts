@@ -115,9 +115,7 @@ export type OutputMessages = {
   [Output.OtherActors]?: NodeMessage | NodeMessage[];
   [Output.Alerts]?: NodeMessage | NodeMessage[];
   [Output.Configuration]?:
-    | MqttSubscribeMsg
-    | MqttUnsubscribeMsg
-    | Array<MqttSubscribeMsg | MqttUnsubscribeMsg>;
+    MqttSubscribeMsg | MqttUnsubscribeMsg | Array<MqttSubscribeMsg | MqttUnsubscribeMsg>;
   [Output.Debug]?: NodeMessage | NodeMessage[];
 };
 
@@ -282,9 +280,7 @@ export interface OtherActorsCommandPayload {
  * based on the value of the 'p' property.
  */
 export type AnyEventsTopicPayload =
-  | NetworkClickRequestPayload
-  | NetworkClickConfirmPayload
-  | PingPayload;
+  NetworkClickRequestPayload | NetworkClickConfirmPayload | PingPayload;
 
 /** A discriminated union of all bridge-local payloads received on `bridge`. */
 export type AnyBridgeTopicPayload = ServicePingReplyPayload | BridgeDiagnosticPayload;
@@ -520,11 +516,7 @@ export type AlertEventType =
  * Identifies which subsystem produced an alert.
  */
 export type AlertEventSource =
-  | "homie_lifecycle"
-  | "watchdog"
-  | "live_telemetry"
-  | "bridge_diagnostic"
-  | "action_validation";
+  "homie_lifecycle" | "watchdog" | "live_telemetry" | "bridge_diagnostic" | "action_validation";
 
 /**
  * Defines the structure of the message payload sent to the 'Alerts' output.

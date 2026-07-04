@@ -30,12 +30,7 @@ import type {
 import { sleep } from "./utils";
 
 export type CoordinatorStatus =
-  | "stopped"
-  | "starting"
-  | "ready"
-  | "warming_up"
-  | "config_error"
-  | "closing";
+  "stopped" | "starting" | "ready" | "warming_up" | "config_error" | "closing";
 
 /**
  * Minimal logger contract accepted by the runtime and adapters.
