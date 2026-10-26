@@ -677,13 +677,13 @@ describe("LshLogicService - Network Click Logic", () => {
     }> = [
       {
         expectedWarning:
-          "Skipping actor 'actor1' because its actuator state is not authoritative yet.",
+          "Skipping click target: Target actor 'actor1' has no authoritative actuator state yet.",
         setup: ({ sendDeviceDetails }) => {
           sendDeviceDetails("actor1", { a: [3, 4] });
         },
       },
       {
-        expectedWarning: "Skipping actor 'actor1' because it disappeared before command execution.",
+        expectedWarning: "Skipping click target: Target actor 'actor1' is unknown to the registry.",
         setup: ({ service }) => {
           (
             service as unknown as {
@@ -725,6 +725,131 @@ describe("LshLogicService - Network Click Logic", () => {
       expect(result.warnings).toContain(expectedWarning);
     }
   });
+
+  it.each([ClickType.Long, ClickType.SuperLong])(
+    "should revalidate cached targets at confirmation without extra traffic (click type %s)",
+    (clickType) => {
+      const cases: Array<{
+        reason: string;
+        setup: (harness: ReturnType<typeof createClickHarness>) => void;
+      }> = [
+        {
+          reason: "Target actor 'actor1' bridge is offline.",
+          setup: ({ sendHomieState }) => sendHomieState("actor1", "lost"),
+        },
+        {
+          reason: "Target actor 'actor1' controller is offline or not responding.",
+          setup: ({ sendBridge }) =>
+            sendBridge("actor1", {
+              event: "service_ping_reply",
+              controller_connected: false,
+              runtime_synchronized: false,
+            }),
+        },
+        {
+          reason: "Target actor 'actor1' has no authoritative actuator state yet.",
+          setup: ({ sendBridge }) =>
+            sendBridge("actor1", {
+              event: "service_ping_reply",
+              controller_connected: true,
+              runtime_synchronized: false,
+              bootstrap_phase: "waiting_for_state",
+            }),
+        },
+        {
+          reason: "Target actor 'actor1' references unknown actuator ID(s): 1.",
+          setup: ({ sendDeviceDetails, sendLshState }) => {
+            sendDeviceDetails("actor1", { a: [2] });
+            sendLshState("actor1", [0]);
+          },
+        },
+      ];
+
+      for (const { reason, setup } of cases) {
+        const button = {
+          id: 1,
+          actors: [{ name: "actor1", allActuators: false, actuators: [1] }],
+        };
+        const harness = createClickHarness({
+          devices: [
+            { name: "sender", longClickButtons: [button], superLongClickButtons: [button] },
+            { name: "actor1" },
+          ],
+        });
+        harness.setDeviceOnline("sender");
+        harness.setDeviceOnline("actor1");
+        const ack = startClick(harness.sendEvents, "sender", clickType);
+        expect(getSingleOutputMessage(ack, Output.Lsh).payload).toEqual({
+          p: LshProtocol.NETWORK_CLICK_ACK,
+          c: 1,
+          i: 1,
+          t: clickType,
+        });
+        setup(harness);
+
+        const result = confirmClick(harness.sendEvents, "sender", clickType);
+
+        // No actuation, repair request or late failover may leave this confirmation.
+        expect(result.messages).toEqual({});
+        expect(result.warnings).toContain(`Skipping click target: ${reason}`);
+        harness.setDeviceOnline("actor1");
+        expect(confirmClick(harness.sendEvents, "sender", clickType).messages).toEqual({});
+
+        startClick(harness.sendEvents, "sender", clickType, 1, 2);
+        const recovered = confirmClick(harness.sendEvents, "sender", clickType, 1, 2);
+        expect(getSingleOutputMessage(recovered, Output.Lsh).payload).toEqual({
+          p: LshProtocol.SET_SINGLE_ACTUATOR,
+          i: 1,
+          s: clickType === ClickType.Long ? 1 : 0,
+        });
+      }
+    },
+  );
+
+  it.each([ClickType.Long, ClickType.SuperLong])(
+    "should execute only surviving targets without letting offline state affect the toggle (click type %s)",
+    (clickType) => {
+      const button = {
+        id: 1,
+        actors: [
+          { name: "actor1", allActuators: true, actuators: [] },
+          { name: "actor2", allActuators: true, actuators: [] },
+        ],
+        otherActors: ["external-light"],
+      };
+      const { setDeviceOnline, sendEvents, sendHomieState, sendLshState, contextReader } =
+        createClickHarness({
+          devices: [
+            { name: "sender", longClickButtons: [button], superLongClickButtons: [button] },
+            { name: "actor1" },
+            { name: "actor2" },
+          ],
+        });
+      setDeviceOnline("sender");
+      setDeviceOnline("actor1", { a: [1, 2, 3] });
+      setDeviceOnline("actor2");
+      sendLshState("actor2", [1]);
+      contextReader.get.mockReturnValue(true);
+      startClick(sendEvents, "sender", clickType);
+      sendHomieState("actor1", "lost");
+
+      const result = confirmClick(sendEvents, "sender", clickType);
+
+      expect(
+        Object.values(result.messages).filter((message) => message !== undefined),
+      ).toHaveLength(2);
+      expect(getSingleOutputMessage(result, Output.Lsh)).toEqual(
+        expect.objectContaining({
+          topic: "LSH/actor2/IN",
+          payload: { p: LshProtocol.SET_STATE, s: [0] },
+        }),
+      );
+      expect(getOtherActorsPayload(result)).toEqual({
+        otherActors: ["external-light"],
+        stateToSet: false,
+      });
+    },
+  );
 
   it("should keep general failover mapped to the protocol general failover command", () => {
     jest.spyOn(ClickTransactionManager.prototype, "startTransaction").mockImplementation(() => {

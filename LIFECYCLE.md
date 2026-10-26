@@ -115,10 +115,19 @@ Snapshot repair is rate-limited per device.
 
 Distributed long-click actions use a request, ACK and confirm lifecycle.
 
-The runtime validates targets before confirming the action. A click fails early
+The runtime validates targets before sending ACK. A click fails early
 when a target device is reachable but lacks an authoritative actuator snapshot.
 Acting from incomplete state could apply the wrong action, so the coordinator
 rejects that user action and waits for the next valid event.
+
+On confirmation, it rechecks the same cached target state before computing the
+smart-toggle decision. Targets that went offline, lost synchronization or no
+longer expose the requested actuators are skipped with a warning; remaining
+valid targets still execute. This check is synchronous and local: it adds no
+MQTT messages, recovery requests, timers or handshake steps. There is no late
+failover after ACK, and a consumed confirmation cannot execute again after a
+target recovers. As with any cached check, a failure not yet reported to the
+coordinator cannot be detected this way.
 
 Runtime config updates clear pending click transactions. In-flight distributed
 clicks are marked failed deliberately rather than preserved across a config

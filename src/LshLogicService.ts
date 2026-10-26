@@ -1561,11 +1561,19 @@ export class LshLogicService {
     }
 
     result.logs.push(`Click confirmed for ${transactionKey}. Executing logic.`);
-    const logicResult = this.executeClickLogic(
-      transaction.actors,
-      transaction.otherActors,
-      clickType,
-    );
+    // ACK does not reserve a healthy target. Recheck only the cached state, before
+    // smart-toggle voting: no probes, waits or late failover after confirmation.
+    const actors = transaction.actors.filter((actor) => {
+      try {
+        this._assertActorCanHandleClick(actor, clickType);
+        return true;
+      } catch (error) {
+        if (!(error instanceof ClickValidationError)) throw error;
+        result.warnings.push(`Skipping click target: ${error.reason}`);
+        return false;
+      }
+    });
+    const logicResult = this.executeClickLogic(actors, transaction.otherActors, clickType);
 
     Object.assign(result.messages, logicResult.messages);
     result.logs.push(...logicResult.logs);
