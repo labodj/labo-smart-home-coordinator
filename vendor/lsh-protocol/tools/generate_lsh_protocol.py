@@ -762,17 +762,17 @@ def render_cpp_transport(header_guard: str, cpp_namespace: str, *, file_name: st
 
 namespace {cpp_namespace}
 {{
-    namespace transport
-    {{
-        inline constexpr uint8_t MSGPACK_FRAME_END = 0x{MSGPACK_FRAME_END:02X}U; //!< Delimiter byte that starts and ends each framed MsgPack payload.
-        inline constexpr uint8_t MSGPACK_FRAME_ESCAPE = 0x{MSGPACK_FRAME_ESCAPE:02X}U; //!< Escape marker emitted before reserved payload bytes.
-        inline constexpr uint8_t MSGPACK_FRAME_ESCAPED_END = 0x{MSGPACK_FRAME_ESCAPED_END:02X}U; //!< Escaped representation of MSGPACK_FRAME_END.
-        inline constexpr uint8_t MSGPACK_FRAME_ESCAPED_ESCAPE = 0x{MSGPACK_FRAME_ESCAPED_ESCAPE:02X}U; //!< Escaped representation of MSGPACK_FRAME_ESCAPE.
+namespace transport
+{{
+inline constexpr uint8_t MSGPACK_FRAME_END = 0x{MSGPACK_FRAME_END:02X}U;             //!< Delimiter byte that starts and ends each framed MsgPack payload.
+inline constexpr uint8_t MSGPACK_FRAME_ESCAPE = 0x{MSGPACK_FRAME_ESCAPE:02X}U;          //!< Escape marker emitted before reserved payload bytes.
+inline constexpr uint8_t MSGPACK_FRAME_ESCAPED_END = 0x{MSGPACK_FRAME_ESCAPED_END:02X}U;     //!< Escaped representation of MSGPACK_FRAME_END.
+inline constexpr uint8_t MSGPACK_FRAME_ESCAPED_ESCAPE = 0x{MSGPACK_FRAME_ESCAPED_ESCAPE:02X}U;  //!< Escaped representation of MSGPACK_FRAME_ESCAPE.
 
-    }} // namespace transport
-}} // namespace {cpp_namespace}
+}}  // namespace transport
+}}  // namespace {cpp_namespace}
 
-#endif // {header_guard}
+#endif  // {header_guard}
 """
 
 
@@ -938,7 +938,7 @@ def render_json_schema(spec: ProtocolSpec) -> str:
 
     positive_uint8 = _uint8_schema(positive=True)
     uint8 = _uint8_schema()
-    uint8_array = {"type": "array", "items": uint8}
+    uint8_array = {"type": "array", "items": uint8, "maxItems": 32}
     positive_unique_uint8_array = {
         "type": "array",
         "items": positive_uint8,
