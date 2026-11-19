@@ -96,6 +96,19 @@ const golden = hasCrossRepoWorkspace
   ? (JSON.parse(readFileSync(GOLDEN_PATH, "utf8")) as GoldenPayloads)
   : null;
 
+describe("vendored v3 wire vectors", () => {
+  const { wireVectors } = JSON.parse(readFileSync(GOLDEN_PATH, "utf8")) as {
+    wireVectors: Record<string, { payload: Record<string, unknown>; msgpack: string }>;
+  };
+  const codec = new LshCodec();
+  it.each(Object.entries(wireVectors))("%s round-trips MQTT bytes and JSON", (_name, v) => {
+    const raw = Buffer.from(v.msgpack, "hex");
+    expect(codec.decode(raw, "msgpack")).toEqual(v.payload);
+    expect(codec.encode(v.payload, "msgpack")).toEqual(raw);
+    expect(codec.decode(JSON.stringify(v.payload), "json")).toEqual(v.payload);
+  });
+});
+
 const MSGPACK_FRAME_END = 0xc0;
 const MSGPACK_FRAME_ESCAPE = 0xdb;
 const MSGPACK_FRAME_ESCAPED_END = 0xdc;

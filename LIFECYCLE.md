@@ -27,6 +27,17 @@ reachability**.
 Startup can therefore reuse retained snapshots while still waiting for live
 evidence before calling a device healthy.
 
+A live `DEVICE_DETAILS` with an incompatible major invalidates the old topology,
+actuator state and pending clicks involving that device. Only a compatible live
+announcement followed by valid live state restores operations. Retained replays
+cannot replace either recovery step. Before the first topology, state triggers
+an ordered request for details and state. No actuator count is inferred from its
+packed bytes. A controller with buttons only announces `a=[]` and then `s=[]`.
+
+Duplicate requests for a pending click get the same ACK. The deadline and targets
+remain those of the first request. A timely confirmation consumes it once. After
+the pending transaction expires, v3 permits reuse of its correlation ID.
+
 ## Recovery Paths
 
 Every configured device is classified into one recovery path:

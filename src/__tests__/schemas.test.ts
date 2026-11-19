@@ -19,6 +19,14 @@ describe("schemas", () => {
     "rejected_homie_stage_failed_commands",
   ] as const;
 
+  it("accepts up to 32 packed bytes before topology is available", () => {
+    for (const count of [0, 1, 32, 33]) {
+      expect(validators.validateActuatorStates({ p: 2, s: Array<number>(count).fill(0) })).toBe(
+        count <= 32,
+      );
+    }
+  });
+
   it("rejects duplicate identifiers across config and details payloads", () => {
     const duplicateCases = [
       () =>

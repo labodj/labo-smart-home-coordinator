@@ -72,6 +72,55 @@ describe("LshLogicService - Network Click Logic", () => {
     jest.restoreAllMocks();
   });
 
+  it("repeats the ACK without extending the deadline and accepts the next correlation", () => {
+    jest.useFakeTimers();
+    try {
+      const { setDeviceOnline, sendEvents } = createClickHarness();
+      setDeviceOnline("actor1");
+      setDeviceOnline("device-sender");
+      const request = (c: number) =>
+        getSingleOutputMessage<{ p: number }>(
+          startClick(sendEvents, "device-sender", ClickType.Long, 1, c),
+          Output.Lsh,
+        ).payload.p;
+      expect(request(255)).toBe(LshProtocol.NETWORK_CLICK_ACK);
+      jest.advanceTimersByTime(1500);
+      expect(request(255)).toBe(LshProtocol.NETWORK_CLICK_ACK);
+      jest.advanceTimersByTime(501);
+      expect(
+        confirmClick(sendEvents, "device-sender", ClickType.Long, 1, 255).messages[Output.Lsh],
+      ).toBeUndefined();
+      expect(request(1)).toBe(LshProtocol.NETWORK_CLICK_ACK);
+      expect(getOutputMessages(confirmClick(sendEvents, "device-sender"), Output.Lsh)).toHaveLength(
+        1,
+      );
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("requires live state before the recovered target can participate in a new click", () => {
+    const { service, setDeviceOnline, sendDeviceDetails, sendLshState, sendEvents } =
+      createClickHarness();
+    setDeviceOnline("actor1");
+    setDeviceOnline("device-sender");
+    startClick(sendEvents, "device-sender");
+    sendDeviceDetails("actor1", { v: 4 });
+    sendDeviceDetails("actor1");
+    sendLshState("actor1", [1], { retained: true });
+    const rejected = startClick(sendEvents, "device-sender", ClickType.SuperLong);
+    expect(getSingleOutputMessage<{ p: number }>(rejected, Output.Lsh).payload.p).toBe(
+      LshProtocol.FAILOVER_CLICK,
+    );
+    sendLshState("actor1", [1]);
+    expect(confirmClick(sendEvents, "device-sender").messages[Output.Lsh]).toBeUndefined();
+    expect(
+      getSingleOutputMessage<{ p: number }>(startClick(sendEvents, "device-sender"), Output.Lsh)
+        .payload.p,
+    ).toBe(LshProtocol.NETWORK_CLICK_ACK);
+    expect(service.getDeviceRegistry().actor1.actuatorStates).toEqual([true]);
+  });
+
   it("should handle the 3-way click handshake", () => {
     const { setDeviceOnline, sendEvents } = createClickHarness();
     setDeviceOnline("actor1");

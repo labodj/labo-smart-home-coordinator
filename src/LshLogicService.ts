@@ -104,6 +104,7 @@ export class ClickValidationError extends Error {
  */
 export class LshLogicService {
   private readonly deviceManager: DeviceRegistryManager;
+  private readonly protocolRecovery = new Map<string, "details" | "state">();
   private readonly clickManager: ClickTransactionManager;
   private readonly watchdog: Watchdog;
 
@@ -400,6 +401,9 @@ export class LshLogicService {
     for (const device of this.systemConfig.devices) {
       this.deviceConfigMap.set(device.name, device);
     }
+    for (const name of this.protocolRecovery.keys()) {
+      if (!newDeviceNames.has(name)) this.protocolRecovery.delete(name);
+    }
     const clearedWatchdogDevices = this.watchdog.pruneDevices(newDeviceNames);
     for (const deviceName of Array.from(this.snapshotRecoveryTimestamps.keys())) {
       if (!newDeviceNames.has(deviceName)) {
@@ -443,6 +447,7 @@ export class LshLogicService {
     this.unhandledTopicLogCounts.clear();
     const result = createEmptyServiceResult();
     this.clickManager.clearAll();
+    this.protocolRecovery.clear();
     this.watchdog.reset();
     this.snapshotRecoveryTimestamps.clear();
     this.queuedSnapshotRecoveryFrames.clear();
@@ -773,6 +778,20 @@ export class LshLogicService {
     const parsedTopic = parseDeviceScopedTopic(topic, this.lshBasePath);
     if (!parsedTopic) {
       return this._handleUnhandledTopic(topic);
+    }
+
+    const recovery = this.protocolRecovery.get(parsedTopic.deviceName);
+    if (
+      recovery &&
+      (parsedTopic.suffix === "/events" ||
+        (parsedTopic.suffix === "/state" && (isRetained || recovery === "details")) ||
+        (parsedTopic.suffix === "/conf" && isRetained))
+    ) {
+      const result = createEmptyServiceResult();
+      result.warnings.push(
+        `Ignoring ${parsedTopic.suffix} for ${parsedTopic.deviceName} while awaiting live ${recovery}.`,
+      );
+      return result;
     }
 
     switch (parsedTopic.suffix) {
@@ -1201,6 +1220,29 @@ export class LshLogicService {
     isLiveTelemetry: boolean,
   ): ServiceResult {
     const result = createEmptyServiceResult();
+    // A newer major can announce a different topology shape; inspect its envelope first.
+    const announcement = payload as Partial<DeviceDetailsPayload> | null;
+    const major = announcement?.v;
+    if (
+      announcement?.p === LshProtocol.DEVICE_DETAILS &&
+      announcement.n === deviceName &&
+      typeof major === "number" &&
+      Number.isInteger(major) &&
+      major >= 0 &&
+      major <= 255 &&
+      major !== LSH_WIRE_PROTOCOL_MAJOR
+    ) {
+      if (isLiveTelemetry) {
+        this.protocolRecovery.set(deviceName, "details");
+        result.registryChanged = this.deviceManager.invalidateProtocolSnapshot(deviceName);
+        result.stateChanged = result.registryChanged;
+        this.clickManager.clearDevice(deviceName);
+      }
+      result.warnings.push(
+        `Protocol major mismatch for ${deviceName}: received ${major}, expected ${LSH_WIRE_PROTOCOL_MAJOR}. Ignoring details payload.`,
+      );
+      return result;
+    }
     if (!this.validators.validateDeviceDetails(payload)) {
       const errorText =
         this.validators.validateDeviceDetails.errors?.map((e) => e.message).join(", ") ||
@@ -1215,11 +1257,13 @@ export class LshLogicService {
       );
       return result;
     }
-    if (detailsPayload.v !== LSH_WIRE_PROTOCOL_MAJOR) {
-      result.warnings.push(
-        `Protocol major mismatch for ${deviceName}: received ${detailsPayload.v}, expected ${LSH_WIRE_PROTOCOL_MAJOR}. Ignoring details payload.`,
+    if (this.protocolRecovery.has(deviceName)) {
+      this.protocolRecovery.set(deviceName, "state");
+      result.messages[Output.Lsh] = this._createLshCommand(
+        this._deviceCommandTopic(deviceName),
+        { p: LshProtocol.REQUEST_STATE },
+        1,
       );
-      return result;
     }
     const { changed, registryChanged } = this.deviceManager.registerDeviceDetails(
       deviceName,
@@ -1259,17 +1303,17 @@ export class LshLogicService {
       // Get the device to know how many actuators we expect
       const device = this.deviceManager.getDevice(deviceName);
       const hasKnownDetails = device !== undefined && device.lastDetailsTime !== 0;
-      const numActuators = hasKnownDetails ? device.actuatorsIDs.length : packedBytes.length * 8;
+      const numActuators = hasKnownDetails ? device.actuatorsIDs.length : 0;
 
       // Validate byte array length: each byte covers 8 actuators
       const expectedBytes = (numActuators + 7) >> 3;
-      if (packedBytes.length !== expectedBytes) {
+      if (hasKnownDetails && packedBytes.length !== expectedBytes) {
         result.errors.push(
           `State mismatch for ${deviceName}: expected ${expectedBytes} bytes for ${numActuators} actuators, received ${packedBytes.length}.`,
         );
         return result;
       }
-      if (!hasZeroUnusedPackedTailBits(packedBytes, numActuators)) {
+      if (hasKnownDetails && !hasZeroUnusedPackedTailBits(packedBytes, numActuators)) {
         result.errors.push(
           `State mismatch for ${deviceName}: unused tail bits must be zero for ${numActuators} actuators.`,
         );
@@ -1294,6 +1338,7 @@ export class LshLogicService {
 
       const { isNew, changed, configIsMissing, registryChanged } =
         this.deviceManager.registerActuatorStates(deviceName, states, isLiveTelemetry);
+      if (!configIsMissing) this.protocolRecovery.delete(deviceName);
       if (registryChanged) {
         result.registryChanged = true;
       }
@@ -1312,11 +1357,11 @@ export class LshLogicService {
         result.warnings.push(
           `Device '${deviceName}' sent state but its configuration is unknown. Requesting details.`,
         );
-        result.messages[Output.Lsh] = this._createLshCommand(
-          this._deviceCommandTopic(deviceName),
-          { p: LshProtocol.REQUEST_DETAILS },
-          1,
-        );
+        const topic = this._deviceCommandTopic(deviceName);
+        result.messages[Output.Lsh] = [
+          this._createLshCommand(topic, { p: LshProtocol.REQUEST_DETAILS }, 1),
+          this._createLshCommand(topic, { p: LshProtocol.REQUEST_STATE }, 1),
+        ];
       }
     } catch (error) {
       result.errors.push(error instanceof Error ? error.message : String(error));
@@ -1487,8 +1532,10 @@ export class LshLogicService {
     const commandTopic = this._deviceCommandTopic(deviceName);
 
     try {
-      const { actors, otherActors } = this._validateClickRequest(deviceName, buttonId, clickType);
-      this.clickManager.startTransaction(slotKey, transactionKey, actors, otherActors);
+      if (!this.clickManager.isPending(transactionKey)) {
+        const { actors, otherActors } = this._validateClickRequest(deviceName, buttonId, clickType);
+        this.clickManager.startTransaction(slotKey, transactionKey, actors, otherActors);
+      }
 
       result.messages[Output.Lsh] = this._createLshCommand(
         commandTopic,
@@ -1615,6 +1662,12 @@ export class LshLogicService {
   }
 
   private _assertActorCanHandleClick(actor: Actor, clickType: ClickType): void {
+    if (this.protocolRecovery.has(actor.name)) {
+      throw new ClickValidationError(
+        `Target actor '${actor.name}' needs a compatible live snapshot.`,
+        "click",
+      );
+    }
     const device = this.deviceManager.getDevice(actor.name);
     if (!device) {
       throw new ClickValidationError(

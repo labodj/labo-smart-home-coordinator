@@ -162,6 +162,20 @@ export class DeviceRegistryManager {
     this.registrySnapshot = Object.freeze({});
   }
 
+  /** Forget data tied to a wire session while preserving bridge reachability. */
+  public invalidateProtocolSnapshot(deviceName: string): boolean {
+    const device = this.getDevice(deviceName);
+    if (!device || (device.lastDetailsTime === 0 && device.lastStateTime === 0)) return false;
+    device.lastDetailsTime = 0;
+    device.lastStateTime = 0;
+    device.actuatorsIDs = [];
+    device.buttonsIDs = [];
+    device.actuatorIndexes = {};
+    device.actuatorStates = [];
+    this._publishDeviceSnapshot(deviceName);
+    return true;
+  }
+
   /**
    * Updates the registry with configuration details from a device's 'conf' message.
    * @param deviceName - The name of the device.
@@ -240,7 +254,7 @@ export class DeviceRegistryManager {
       );
     }
 
-    const hasChanged = !areSameArray(device.actuatorStates, newStates);
+    const hasChanged = !configIsMissing && !areSameArray(device.actuatorStates, newStates);
 
     if (hasChanged) {
       // Keep the registry detached from caller-owned arrays. This function is
@@ -252,7 +266,7 @@ export class DeviceRegistryManager {
     if (markSeen) {
       device.lastSeenTime = now;
     }
-    device.lastStateTime = now;
+    if (!configIsMissing) device.lastStateTime = now;
     this._publishDeviceSnapshot(deviceName);
     return { isNew, changed: hasChanged, configIsMissing, registryChanged: true };
   }

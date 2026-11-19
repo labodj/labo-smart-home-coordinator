@@ -338,6 +338,7 @@ export const deviceActuatorsStatePayloadSchema = {
       type: "array",
       items: { type: "integer", minimum: 0, maximum: 255 },
       minItems: 0,
+      maxItems: 32,
       description: "Array of bitpacked bytes (each byte = 8 actuator states).",
     },
   },

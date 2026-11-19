@@ -1,4 +1,5 @@
-import type { LshLogicService } from "../LshLogicService";
+import { LshLogicService } from "../LshLogicService";
+import { createAppValidators } from "../schemas";
 import { LSH_WIRE_PROTOCOL_MAJOR, LshProtocol, Output } from "../types";
 import type { ServiceHarness } from "./helpers/serviceTestUtils";
 import {
@@ -1017,6 +1018,80 @@ describe("LshLogicService - Core & Config", () => {
         `Protocol major mismatch for actor1: received ${LSH_WIRE_PROTOCOL_MAJOR + 1}, expected ${LSH_WIRE_PROTOCOL_MAJOR}. Ignoring details payload.`,
       );
       expect(service.getDeviceRegistry().actor1).toBeUndefined();
+    });
+
+    it("requires fresh compatible details and valid live state after a live major mismatch", () => {
+      setDeviceOnline("actor1");
+      const details = { p: 1, v: 3, n: "actor1", a: [1], b: [] };
+      const send = (suffix: string, payload: unknown, retained = false) =>
+        service.processMessage(`LSH/actor1/${suffix}`, payload, { retained });
+      const registry = () => service.getDeviceRegistry().actor1;
+      send("conf", { ...details, v: 4 }, true);
+      expect(registry().actuatorStates).toEqual([false]);
+      send("conf", { ...details, v: 4 });
+      expect(registry().actuatorsIDs).toEqual([]);
+      send("conf", details, true);
+      send("state", { p: 2, s: [1] });
+      expect(registry().lastStateTime).toBe(0);
+      expect(getOutputMessages(send("conf", details), Output.Lsh)[0].payload).toEqual({ p: 11 });
+      send("state", { p: 2, s: [1] }, true);
+      send("state", { p: 2, s: [2] });
+      expect(registry().lastStateTime).toBe(0);
+      expect(send("events", { p: 3, c: 1, i: 1, t: 1 }).warnings).toHaveLength(1);
+      send("state", { p: 2, s: [1] });
+      expect(registry().actuatorStates).toEqual([true]);
+    });
+
+    it.each([true, false])(
+      "requests ordered snapshots after state before topology (retained=%s)",
+      (retained) => {
+        const result = service.processMessage("LSH/actor1/state", { p: 2, s: [255] }, { retained });
+        expect(getOutputMessages(result, Output.Lsh).map((m) => m.payload)).toEqual([
+          { p: 10 },
+          { p: 11 },
+        ]);
+        service.processMessage(
+          "LSH/actor1/conf",
+          { p: 1, n: "actor1", v: 3, a: [], b: [1] },
+          { retained },
+        );
+        expect(service.getDeviceRegistry().actor1).toMatchObject({
+          actuatorStates: [],
+          lastStateTime: 0,
+        });
+        sendLshState("actor1", []);
+        expect(service.getDeviceRegistry().actor1.lastStateTime).toBeGreaterThan(0);
+      },
+    );
+
+    it("uses the major envelope before v3 topology validation, and rejects oversize states at ingress", () => {
+      const runtime = new LshLogicService(
+        defaultServiceConfig,
+        { get: () => undefined },
+        createAppValidators(),
+      );
+      runtime.updateSystemConfig(createSystemConfig("actor1"));
+      for (const retained of [true, false]) {
+        const invalid = runtime.processMessage(
+          "LSH/actor1/state",
+          { p: 2, s: Array<number>(33).fill(0) },
+          { retained },
+        );
+        expect(invalid.warnings.join(" ")).toContain("Invalid 'state'");
+        expect(runtime.getDeviceRegistry().actor1).toBeUndefined();
+      }
+      const topic = "LSH/actor1/conf";
+      const details = { p: 1, n: "actor1", v: 3, a: [5], b: [] };
+      runtime.processMessage(topic, details);
+      runtime.processMessage("LSH/actor1/state", { p: 2, s: [1] });
+      runtime.processMessage(topic, { ...details, v: 4, n: "different" });
+      expect(runtime.getDeviceRegistry().actor1.actuatorStates).toEqual([true]);
+      runtime.processMessage(topic, { p: 1, n: "actor1", v: 4, topology: {} });
+      runtime.processMessage("LSH/actor1/state", { p: 2, s: [1] });
+      expect(runtime.getDeviceRegistry().actor1).toMatchObject({
+        actuatorsIDs: [],
+        lastStateTime: 0,
+      });
     });
 
     it("should ignore device details whose payload name does not match the topic device", () => {

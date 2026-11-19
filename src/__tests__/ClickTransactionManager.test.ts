@@ -68,6 +68,44 @@ describe("ClickTransactionManager", () => {
     expect(manager.getPendingCount()).toBe(0);
   });
 
+  it("keeps the original deadline and targets when a request is repeated", () => {
+    manager.startTransaction("a.1.1", "a.1.1.255", [], ["lamp"]);
+    jest.advanceTimersByTime(7500);
+    manager.startTransaction("a.1.1", "a.1.1.255", [], ["other"]);
+    jest.advanceTimersByTime(2501);
+    expect(manager.consumeTransaction("a.1.1.255")).toBeNull();
+    manager.startTransaction("a.1.1", "a.1.1.1", [], ["lamp"]);
+    manager.startTransaction("a.1.1", "a.1.1.1", [], ["other"]);
+    expect(manager.consumeTransaction("a.1.1.1")?.otherActors).toEqual(["lamp"]);
+    expect(manager.consumeTransaction("a.1.1.1")).toBeNull();
+  });
+
+  it.each([true, false])(
+    "allows correlation reuse after expiry regardless of cleanup (%s)",
+    (sweep) => {
+      manager.startTransaction("a.1.1", "a.1.1.1", [], ["first"]);
+      jest.advanceTimersByTime(CLICK_TIMEOUT_SEC * 1000 + 1);
+      if (sweep) manager.cleanupExpired();
+      manager.startTransaction("a.1.1", "a.1.1.1", [], ["second"]);
+      expect(manager.consumeTransaction("a.1.1.1")?.otherActors).toEqual(["second"]);
+    },
+  );
+
+  it("invalidates only pending clicks involving the incompatible device", () => {
+    manager.startTransaction("a.1.1", "source", [], []);
+    manager.startTransaction(
+      "b.1.1",
+      "target",
+      [{ name: "a", allActuators: true, actuators: [] }],
+      [],
+    );
+    manager.startTransaction("aa.1.1", "unrelated", [], []);
+    manager.clearDevice("a");
+    expect(manager.consumeTransaction("source")).toBeNull();
+    expect(manager.consumeTransaction("target")).toBeNull();
+    expect(manager.consumeTransaction("unrelated")).not.toBeNull();
+  });
+
   it("should replace the previous correlation for the same logical slot", () => {
     manager.startTransaction("slot1", "key1", [], []);
     manager.startTransaction("slot1", "key2", [], []);

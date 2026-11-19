@@ -53,6 +53,7 @@ export class ClickTransactionManager {
     otherActors: string[],
   ): void {
     const previousCorrelationKey = this.activeSlots.get(slotKey);
+    if (previousCorrelationKey === correlationKey && this.isPending(correlationKey)) return;
     if (previousCorrelationKey) {
       this.pendingClicks.delete(previousCorrelationKey);
     }
@@ -112,6 +113,23 @@ export class ClickTransactionManager {
       }
     }
     return cleanedCount;
+  }
+
+  public isPending(correlationKey: string): boolean {
+    const pending = this.pendingClicks.get(correlationKey);
+    return pending !== undefined && Date.now() - pending.timestamp <= this.clickTimeoutMs;
+  }
+
+  /** Discard transactions whose source or targets belonged to the old session. */
+  public clearDevice(deviceName: string): void {
+    for (const [key, transaction] of this.pendingClicks) {
+      if (
+        transaction.slotKey.startsWith(deviceName + ".") ||
+        transaction.actors.some((actor) => actor.name === deviceName)
+      ) {
+        this.discardTransaction(key, transaction);
+      }
+    }
   }
 
   /**
